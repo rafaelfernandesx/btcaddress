@@ -138,7 +138,10 @@ class _MyHomePageState extends State<MyHomePage> {
                   suffix: GestureDetector(
                     onTap: () async {
                       final balance = await getBalance(p2pkhcController.text);
-                      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Balance: $balance')));
+                      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                        content: Text('Balance: $balance'),
+                        duration: Duration(seconds: 1),
+                      ));
                     },
                     child: Icon(Icons.search),
                   ),
@@ -153,8 +156,11 @@ class _MyHomePageState extends State<MyHomePage> {
                   labelText: 'Address UnCompressed',
                   suffix: GestureDetector(
                     onTap: () async {
-                      final balance = await getBalance(p2pkhcController.text);
-                      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Balance: $balance')));
+                      final balance = await getBalance(p2pkhController.text);
+                      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                        content: Text('Balance: $balance'),
+                        duration: Duration(seconds: 1),
+                      ));
                     },
                     child: Icon(Icons.search),
                   ),
