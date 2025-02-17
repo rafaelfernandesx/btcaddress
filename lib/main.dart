@@ -72,6 +72,8 @@ class _MyHomePageState extends State<MyHomePage> {
     }
   }
 
+  bool more = false;
+
   @override
   Widget build(BuildContext context) {
     return GestureDetector(
@@ -83,155 +85,186 @@ class _MyHomePageState extends State<MyHomePage> {
           backgroundColor: Theme.of(context).colorScheme.inversePrimary,
           title: Text(widget.title),
         ),
-        body: Center(
-          child: ListView(
-            shrinkWrap: true,
-            children: <Widget>[
-              SizedBox(height: 16),
-              TextField(
-                controller: seedController,
-                decoration: const InputDecoration(
-                  border: OutlineInputBorder(),
-                  labelText: 'Seed',
-                ),
-                onChanged: (value) {
-                  btc.setPrivateKeyFromSeed(value);
-                  update();
-                },
-              ),
-              SizedBox(height: 8),
-              TextField(
-                controller: hexController,
-                decoration: const InputDecoration(
-                  border: OutlineInputBorder(),
-                  labelText: 'Hex',
-                ),
-                onChanged: (value) {
-                  if (value.isNotEmpty) {
-                    btc.setPrivateKeyHex(value);
-                    update();
-                  }
-                },
-              ),
-              SizedBox(height: 8),
-              TextField(
-                controller: wifController,
-                decoration: const InputDecoration(
-                  border: OutlineInputBorder(),
-                  labelText: 'Wif',
-                ),
-                onChanged: (value) {
-                  if (value.isNotEmpty) {
-                    btc.setPrivateKeyWithWif(value);
-                    update();
-                  }
-                },
-              ),
-              SizedBox(height: 8),
-              Text('Results:'),
-              SizedBox(height: 8),
-              TextField(
-                controller: p2pkhcController,
-                decoration: InputDecoration(
-                  border: OutlineInputBorder(),
-                  labelText: 'Address Compressed',
-                  suffix: GestureDetector(
-                    onTap: () async {
-                      final balance = await getBalance(p2pkhcController.text);
-                      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-                        content: Text('Balance: $balance'),
-                        duration: Duration(seconds: 1),
-                      ));
-                    },
-                    child: Icon(Icons.search),
+        body: Padding(
+          padding: const EdgeInsets.all(8.0),
+          child: Center(
+            child: ListView(
+              shrinkWrap: true,
+              children: <Widget>[
+                SizedBox(height: 16),
+                TextField(
+                  controller: seedController,
+                  decoration: const InputDecoration(
+                    border: OutlineInputBorder(),
+                    labelText: 'Seed',
                   ),
+                  onChanged: (value) {
+                    btc.setPrivateKeyFromSeed(value);
+                    update();
+                  },
                 ),
-                readOnly: true,
-              ),
-              SizedBox(height: 8),
-              TextField(
-                controller: p2pkhController,
-                decoration: InputDecoration(
-                  border: OutlineInputBorder(),
-                  labelText: 'Address UnCompressed',
-                  suffix: GestureDetector(
-                    onTap: () async {
-                      final balance = await getBalance(p2pkhController.text);
-                      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-                        content: Text('Balance: $balance'),
-                        duration: Duration(seconds: 1),
-                      ));
-                    },
-                    child: Icon(Icons.search),
+                SizedBox(height: 8),
+                TextField(
+                  controller: hexController,
+                  decoration: const InputDecoration(
+                    border: OutlineInputBorder(),
+                    labelText: 'Hex',
                   ),
+                  onChanged: (value) {
+                    if (value.isNotEmpty) {
+                      btc.setPrivateKeyHex(value);
+                      update();
+                    }
+                  },
                 ),
-                readOnly: true,
-              ),
-              SizedBox(height: 8),
-              TextField(
-                controller: privKeyHexController,
-                decoration: const InputDecoration(
-                  border: OutlineInputBorder(),
-                  labelText: 'Private Key Hex',
+                SizedBox(height: 8),
+                TextField(
+                  controller: wifController,
+                  decoration: const InputDecoration(
+                    border: OutlineInputBorder(),
+                    labelText: 'Wif',
+                  ),
+                  onChanged: (value) {
+                    if (value.isNotEmpty) {
+                      btc.setPrivateKeyWithWif(value);
+                      update();
+                    }
+                  },
                 ),
-                readOnly: true,
-              ),
-              SizedBox(height: 8),
-              TextField(
-                controller: privKeyWifController,
-                decoration: const InputDecoration(
-                  border: OutlineInputBorder(),
-                  labelText: 'Private Key Wif',
+                SizedBox(height: 8),
+                Text('Results:'),
+                SizedBox(height: 8),
+                Row(
+                  children: [
+                    Expanded(
+                      child: TextField(
+                        controller: p2pkhcController,
+                        decoration: InputDecoration(
+                          border: OutlineInputBorder(),
+                          labelText: 'Address Compressed',
+                        ),
+                        readOnly: true,
+                      ),
+                    ),
+                    SizedBox(width: 8),
+                    IconButton(
+                      onPressed: () async {
+                        final balance = await getBalance(p2pkhcController.text);
+                        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                          content: Text('Balance: $balance'),
+                          duration: Duration(milliseconds: 250),
+                        ));
+                      },
+                      icon: Icon(Icons.search),
+                    )
+                  ],
                 ),
-                readOnly: true,
-              ),
-              SizedBox(height: 8),
-              TextField(
-                controller: privKeyWifcController,
-                decoration: const InputDecoration(
-                  border: OutlineInputBorder(),
-                  labelText: 'Private Key Wif compressed',
+                SizedBox(height: 8),
+                Row(
+                  children: [
+                    Expanded(
+                      child: TextField(
+                        controller: p2pkhController,
+                        decoration: InputDecoration(
+                          border: OutlineInputBorder(),
+                          labelText: 'Address UnCompressed',
+                        ),
+                        readOnly: true,
+                      ),
+                    ),
+                    SizedBox(width: 8),
+                    IconButton(
+                      onPressed: () async {
+                        final balance = await getBalance(p2pkhController.text);
+                        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                          content: Text('Balance: $balance'),
+                          duration: Duration(milliseconds: 250),
+                        ));
+                      },
+                      icon: Icon(Icons.search),
+                    )
+                  ],
                 ),
-                readOnly: true,
-              ),
-              SizedBox(height: 8),
-              TextField(
-                controller: ripemdController,
-                decoration: const InputDecoration(
-                  border: OutlineInputBorder(),
-                  labelText: 'ripemd160 uncompressed',
+                SizedBox(height: 8),
+                ElevatedButton(
+                  onPressed: () {
+                    setState(() {
+                      more = !more;
+                    });
+                  },
+                  child: Icon(more ? Icons.expand_less : Icons.expand_more),
                 ),
-                readOnly: true,
-              ),
-              SizedBox(height: 8),
-              TextField(
-                controller: ripemdcController,
-                decoration: const InputDecoration(
-                  border: OutlineInputBorder(),
-                  labelText: 'ripemd160 compressed',
+                SizedBox(height: 8),
+                Visibility(
+                  visible: more,
+                  child: Column(mainAxisSize: MainAxisSize.min, children: [
+                    TextField(
+                      controller: privKeyHexController,
+                      decoration: const InputDecoration(
+                        border: OutlineInputBorder(),
+                        labelText: 'Private Key Hex',
+                      ),
+                      readOnly: true,
+                    ),
+                    SizedBox(height: 8),
+                    TextField(
+                      controller: privKeyWifController,
+                      decoration: const InputDecoration(
+                        border: OutlineInputBorder(),
+                        labelText: 'Private Key Wif',
+                      ),
+                      readOnly: true,
+                    ),
+                    SizedBox(height: 8),
+                    TextField(
+                      controller: privKeyWifcController,
+                      decoration: const InputDecoration(
+                        border: OutlineInputBorder(),
+                        labelText: 'Private Key Wif compressed',
+                      ),
+                      readOnly: true,
+                    ),
+                    SizedBox(height: 8),
+                    TextField(
+                      controller: ripemdController,
+                      decoration: const InputDecoration(
+                        border: OutlineInputBorder(),
+                        labelText: 'ripemd160 uncompressed',
+                      ),
+                      readOnly: true,
+                    ),
+                    SizedBox(height: 8),
+                    TextField(
+                      controller: ripemdcController,
+                      decoration: const InputDecoration(
+                        border: OutlineInputBorder(),
+                        labelText: 'ripemd160 compressed',
+                      ),
+                      readOnly: true,
+                    ),
+                    SizedBox(height: 8),
+                    TextField(
+                      controller: pubKeyHexController,
+                      decoration: const InputDecoration(
+                        border: OutlineInputBorder(),
+                        labelText: 'PubKey hex uncompressed',
+                      ),
+                      readOnly: true,
+                    ),
+                    SizedBox(height: 8),
+                    TextField(
+                      controller: pubKeyHexcController,
+                      decoration: const InputDecoration(
+                        border: OutlineInputBorder(),
+                        labelText: 'PubKey hex compressed',
+                      ),
+                      readOnly: true,
+                    ),
+                  ]),
                 ),
-                readOnly: true,
-              ),
-              SizedBox(height: 8),
-              TextField(
-                controller: pubKeyHexController,
-                decoration: const InputDecoration(
-                  border: OutlineInputBorder(),
-                  labelText: 'PubKey hex uncompressed',
-                ),
-                readOnly: true,
-              ),
-              SizedBox(height: 8),
-              TextField(
-                controller: pubKeyHexcController,
-                decoration: const InputDecoration(
-                  border: OutlineInputBorder(),
-                  labelText: 'PubKey hex compressed',
-                ),
-                readOnly: true,
-              ),
-              SizedBox(height: 64),
-            ],
+                SizedBox(height: 64),
+              ],
+            ),
           ),
         ),
       ),
