@@ -49,6 +49,8 @@ class _PuzzleLabScreenState extends State<PuzzleLabScreen> {
   bool _showToySolution = false;
 
   int _selectedPuzzleId = 1;
+  String _puzzleQuery = '';
+  BitcoinPuzzleSolveStatus? _statusFilter;
   final _puzzleAddressController = TextEditingController();
   final _candidatePrivKeyController = TextEditingController();
   String? _candidateResult;
@@ -205,16 +207,42 @@ class _PuzzleLabScreenState extends State<PuzzleLabScreen> {
   }
 
   void _applyPuzzlePreset(int puzzleId) {
-    final address = kBitcoinPuzzleAddresses[puzzleId];
-    if (address == null) return;
+    final preset = kBitcoinPuzzlePresetsById[puzzleId];
+    if (preset == null) return;
 
     setState(() {
       _selectedPuzzleId = puzzleId;
-      _puzzleAddressController.text = address;
+      _puzzleAddressController.text = preset.address;
       _candidatePrivKeyController.text = '';
       _candidateResult = null;
       _message = null;
     });
+  }
+
+  List<BitcoinPuzzlePreset> _filteredPresets() {
+    final q = _puzzleQuery.trim().toLowerCase();
+    return kBitcoinPuzzlePresets.where((p) {
+      if (_statusFilter != null && p.status != _statusFilter) return false;
+      if (q.isEmpty) return true;
+      return p.id.toString() == q || p.address.toLowerCase().contains(q);
+    }).toList();
+  }
+
+  Color _statusColor(BuildContext context, BitcoinPuzzleSolveStatus status) {
+    switch (status) {
+      case BitcoinPuzzleSolveStatus.unsolved:
+        return Theme.of(context).colorScheme.tertiary;
+      case BitcoinPuzzleSolveStatus.solved:
+        return Theme.of(context).colorScheme.primary;
+      case BitcoinPuzzleSolveStatus.unknown:
+        return Theme.of(context).colorScheme.outline;
+    }
+  }
+
+  String _statusLabel(BitcoinPuzzlePreset preset) {
+    if (preset.status == BitcoinPuzzleSolveStatus.unsolved) return 'Unsolved';
+    if (preset.status == BitcoinPuzzleSolveStatus.solved) return 'Solved (${preset.statusLabel})';
+    return 'Unknown';
   }
 
   void _verifyCandidate() {
@@ -284,11 +312,14 @@ class _PuzzleLabScreenState extends State<PuzzleLabScreen> {
     final max = _maxKey();
     final totalKeys = max.toString();
 
-    final puzzleBits = _selectedPuzzleId;
+    final selectedPreset = kBitcoinPuzzlePresetsById[_selectedPuzzleId] ?? kBitcoinPuzzlePresets.first;
+    final puzzleBits = selectedPreset.bits;
     final puzzleStart = _puzzleStartKey(puzzleBits);
     final puzzleEnd = _puzzleEndKey(puzzleBits);
     final puzzleStartHex = puzzleStart.toRadixString(16).padLeft(64, '0');
     final puzzleEndHex = puzzleEnd.toRadixString(16).padLeft(64, '0');
+
+    final filtered = _filteredPresets();
 
     return Scaffold(
       appBar: AppBar(
@@ -486,7 +517,8 @@ class _PuzzleLabScreenState extends State<PuzzleLabScreen> {
                     ),
                     const SizedBox(height: 8),
                     Text(
-                      'Presets extraídos do SecretScan. O app não faz tentativa aleatória/brute force em puzzles reais.',
+                      'Lista atualizada de puzzles com status e recompensa.\n'
+                      'Este app não faz tentativa aleatória/brute force em puzzles reais.',
                       style: Theme.of(context).textTheme.bodyMedium,
                     ),
                     const SizedBox(height: 12),
@@ -494,26 +526,24 @@ class _PuzzleLabScreenState extends State<PuzzleLabScreen> {
                       children: [
                         Expanded(
                           child: Text(
-                            'Puzzle #$_selectedPuzzleId (keyspace: $puzzleBits bits)',
+                            'Selecionado: Puzzle #${selectedPreset.id} (${selectedPreset.bits} bits)',
                             style: Theme.of(context).textTheme.titleMedium,
                           ),
                         ),
                         const SizedBox(width: 12),
-                        DropdownButton<int>(
-                          value: _selectedPuzzleId,
-                          onChanged: (v) {
-                            if (v == null) return;
-                            _applyPuzzlePreset(v);
-                          },
-                          items: List.generate(
-                            160,
-                            (i) => DropdownMenuItem<int>(
-                              value: i + 1,
-                              child: Text('${i + 1}'),
-                            ),
-                          ),
+                        Chip(
+                          label: Text(_statusLabel(selectedPreset)),
+                          backgroundColor: _statusColor(context, selectedPreset.status).withValues(alpha: 0.12),
+                          side: BorderSide(color: _statusColor(context, selectedPreset.status).withValues(alpha: 0.35)),
                         ),
                       ],
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      'Recompensa: ${selectedPreset.rewardBtc} ₿',
+                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                            fontWeight: FontWeight.w700,
+                          ),
                     ),
                     const SizedBox(height: 12),
                     CopyableTextField(
@@ -528,7 +558,121 @@ class _PuzzleLabScreenState extends State<PuzzleLabScreen> {
                       'Fim:    $puzzleEndHex',
                       style: const TextStyle(fontFamily: 'monospace', fontSize: 12),
                     ),
+                    const SizedBox(height: 16),
+                    Text(
+                      'Lista',
+                      style: Theme.of(context).textTheme.titleMedium,
+                    ),
+                    const SizedBox(height: 8),
+                    TextField(
+                      decoration: const InputDecoration(
+                        labelText: 'Buscar por # ou endereço',
+                        prefixIcon: Icon(Icons.search),
+                      ),
+                      onChanged: (v) {
+                        setState(() {
+                          _puzzleQuery = v;
+                        });
+                      },
+                    ),
+                    const SizedBox(height: 8),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: [
+                        FilterChip(
+                          selected: _statusFilter == null,
+                          label: const Text('Todos'),
+                          onSelected: (_) {
+                            setState(() {
+                              _statusFilter = null;
+                            });
+                          },
+                        ),
+                        FilterChip(
+                          selected: _statusFilter == BitcoinPuzzleSolveStatus.unsolved,
+                          label: const Text('Unsolved'),
+                          onSelected: (_) {
+                            setState(() {
+                              _statusFilter = BitcoinPuzzleSolveStatus.unsolved;
+                            });
+                          },
+                        ),
+                        FilterChip(
+                          selected: _statusFilter == BitcoinPuzzleSolveStatus.solved,
+                          label: const Text('Solved'),
+                          onSelected: (_) {
+                            setState(() {
+                              _statusFilter = BitcoinPuzzleSolveStatus.solved;
+                            });
+                          },
+                        ),
+                      ],
+                    ),
                     const SizedBox(height: 12),
+                    Text(
+                      'Mostrando ${filtered.length} de ${kBitcoinPuzzlePresets.length}',
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                    const SizedBox(height: 8),
+                    ListView.separated(
+                      shrinkWrap: true,
+                      physics: const NeverScrollableScrollPhysics(),
+                      itemCount: filtered.length,
+                      separatorBuilder: (_, __) => const Divider(height: 16),
+                      itemBuilder: (context, index) {
+                        final p = filtered[index];
+                        final isSelected = p.id == selectedPreset.id;
+                        final statusColor = _statusColor(context, p.status);
+
+                        return ListTile(
+                          contentPadding: EdgeInsets.zero,
+                          leading: CircleAvatar(
+                            backgroundColor:
+                                isSelected ? Theme.of(context).colorScheme.primary : Theme.of(context).colorScheme.surfaceContainerHighest,
+                            foregroundColor: isSelected ? Theme.of(context).colorScheme.onPrimary : Theme.of(context).colorScheme.onSurface,
+                            child: Text(
+                              '${p.id}',
+                              style: const TextStyle(fontWeight: FontWeight.w800),
+                            ),
+                          ),
+                          title: Text('Puzzle #${p.id} • ${p.bits} bits'),
+                          subtitle: Text(
+                            p.address,
+                            style: const TextStyle(fontFamily: 'monospace', fontSize: 12),
+                          ),
+                          trailing: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            crossAxisAlignment: CrossAxisAlignment.end,
+                            children: [
+                              Text(
+                                '${p.rewardBtc} ₿',
+                                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                                      fontWeight: FontWeight.w800,
+                                    ),
+                              ),
+                              const SizedBox(height: 4),
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                                decoration: BoxDecoration(
+                                  color: statusColor.withValues(alpha: 0.12),
+                                  borderRadius: BorderRadius.circular(999),
+                                  border: Border.all(color: statusColor.withValues(alpha: 0.35)),
+                                ),
+                                child: Text(
+                                  _statusLabel(p),
+                                  style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700),
+                                ),
+                              ),
+                            ],
+                          ),
+                          onTap: () {
+                            _applyPuzzlePreset(p.id);
+                          },
+                        );
+                      },
+                    ),
+                    const SizedBox(height: 16),
                     Text(
                       'Verificar chave (opcional)',
                       style: Theme.of(context).textTheme.titleMedium,
