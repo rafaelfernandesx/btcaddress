@@ -39,6 +39,13 @@ class _PuzzleLabScreenState extends State<PuzzleLabScreen> {
   bool _checkCompressed = true;
   PuzzleSearchStrategy _toyStrategy = PuzzleSearchStrategy.sequential;
 
+  int? _toyRandomSeed;
+
+  bool _simulateBitcoinPuzzle = false;
+  int _simulatePuzzleId = 1;
+  String _simulateQuery = '';
+  BitcoinPuzzleSolveStatus? _simulateStatusFilter;
+
   bool _running = false;
   String? _message;
   PuzzleSolveProgress? _progress;
@@ -72,6 +79,17 @@ class _PuzzleLabScreenState extends State<PuzzleLabScreen> {
   }
 
   BigInt _maxKey() {
+    return (BigInt.one << _toyBitLength) - BigInt.one;
+  }
+
+  BigInt _toyStartKey() {
+    if (!_simulateBitcoinPuzzle) return BigInt.one;
+    if (_toyBitLength <= 1) return BigInt.one;
+    return BigInt.one << (_toyBitLength - 1);
+  }
+
+  BigInt _toyEndKey() {
+    if (!_simulateBitcoinPuzzle) return _maxKey();
     return (BigInt.one << _toyBitLength) - BigInt.one;
   }
 
@@ -109,6 +127,12 @@ class _PuzzleLabScreenState extends State<PuzzleLabScreen> {
       _running = true;
     });
 
+    final int? randomSeed = _toyStrategy == PuzzleSearchStrategy.random ? (_toyRandomSeed ?? DateTime.now().microsecondsSinceEpoch) : null;
+
+    if (_toyStrategy == PuzzleSearchStrategy.random) {
+      _toyRandomSeed = randomSeed;
+    }
+
     try {
       await _solver.start(
         targetAddress: target,
@@ -116,6 +140,7 @@ class _PuzzleLabScreenState extends State<PuzzleLabScreen> {
         checkLegacy: _checkLegacy,
         checkCompressed: _checkCompressed,
         strategy: _toyStrategy,
+        randomSeed: randomSeed,
         onProgress: (p) {
           if (!mounted) return;
           setState(() {
@@ -171,24 +196,46 @@ class _PuzzleLabScreenState extends State<PuzzleLabScreen> {
 
   void _generateToyPuzzle() {
     final random = math.Random.secure();
-    final max = _maxKey();
-    if (max <= BigInt.one) {
+
+    final start = _toyStartKey();
+    final end = _toyEndKey();
+    if (end <= BigInt.one || end < start) {
       setState(() {
         _message = 'bitLength muito pequeno.';
       });
       return;
     }
 
-    // Gera k em [1, max] (8..32 bits). Para 32 bits, Random.nextInt não aceita 2^32.
-    int intCandidate;
-    if (_toyBitLength == 32) {
-      final hi = random.nextInt(1 << 16);
-      final lo = random.nextInt(1 << 16);
-      intCandidate = (hi << 16) | lo;
+    // Gera k no range de treino. No modo simulação, usa o range estilo Bitcoin Puzzle: [2^(n-1), 2^n-1].
+    BigInt k;
+    if (_simulateBitcoinPuzzle) {
+      final bits = _toyBitLength;
+      if (bits < 8 || bits > 32) {
+        setState(() {
+          _message = 'Simulação disponível apenas para 8..32 bits (educacional).';
+        });
+        return;
+      }
+      if (bits == 1) {
+        k = BigInt.one;
+      } else {
+        final offsetMax = 1 << (bits - 1); // 2^(bits-1) < 2^32 para bits<=32
+        final offset = random.nextInt(offsetMax);
+        final intCandidate = (1 << (bits - 1)) + offset;
+        k = BigInt.from(intCandidate);
+      }
     } else {
-      intCandidate = random.nextInt(1 << _toyBitLength);
+      // Range padrão: [1, 2^bits-1]. Para 32 bits, Random.nextInt não aceita 2^32.
+      int intCandidate;
+      if (_toyBitLength == 32) {
+        final hi = random.nextInt(1 << 16);
+        final lo = random.nextInt(1 << 16);
+        intCandidate = (hi << 16) | lo;
+      } else {
+        intCandidate = random.nextInt(1 << _toyBitLength);
+      }
+      k = BigInt.from(intCandidate == 0 ? 1 : intCandidate);
     }
-    final BigInt k = BigInt.from(intCandidate == 0 ? 1 : intCandidate);
 
     final privHex = k.toRadixString(16).padLeft(64, '0');
     final btc = BitcoinTOOL()..setPrivateKeyHex(privHex);
@@ -204,8 +251,60 @@ class _PuzzleLabScreenState extends State<PuzzleLabScreen> {
       _toyPrivateKeyHex = privHex;
       _toyTargetAddress = compressed;
       _showToySolution = false;
-      _message = 'Toy puzzle gerado. Tente encontrar a chave no range 1..2^$_toyBitLength-1.';
+      _toyRandomSeed = null;
+      _message = _simulateBitcoinPuzzle
+          ? 'Simulação gerada (Puzzle #$_simulatePuzzleId). Tente encontrar a chave no range 2^${_toyBitLength - 1}..2^$_toyBitLength-1.'
+          : 'Toy puzzle gerado. Tente encontrar a chave no range 1..2^$_toyBitLength-1.';
     });
+  }
+
+  void _applySimulationPreset(int puzzleId) {
+    final preset = kBitcoinPuzzlePresetsById[puzzleId];
+    if (preset == null) return;
+
+    setState(() {
+      _simulatePuzzleId = puzzleId;
+      _message = null;
+    });
+
+    if (preset.bits < 8 || preset.bits > 32) {
+      setState(() {
+        _message = 'Esse preset tem ${preset.bits} bits. A simulação do solver é apenas para 8..32 bits (educacional).';
+      });
+      return;
+    }
+
+    setState(() {
+      _toyBitLength = preset.bits;
+    });
+
+    _generateToyPuzzle();
+  }
+
+  List<BitcoinPuzzlePreset> _filteredSimulationPresets() {
+    final q = _simulateQuery.trim().toLowerCase();
+    return kBitcoinPuzzlePresets.where((p) {
+      if (_simulateStatusFilter != null && p.status != _simulateStatusFilter) return false;
+      if (q.isEmpty) return true;
+      return p.id.toString() == q || p.address.toLowerCase().contains(q);
+    }).toList();
+  }
+
+  Future<void> _repeatTest() async {
+    if (_running) return;
+    if (_toyTargetAddress == null) return;
+
+    setState(() {
+      _message = null;
+      _progress = null;
+      _found = null;
+      _currentKeyController.text = '';
+      _foundPrivKeyController.text = '';
+      _foundCompressedController.text = '';
+      _foundLegacyController.text = '';
+    });
+
+    await _start();
   }
 
   void _applyPuzzlePreset(int puzzleId) {
@@ -314,6 +413,11 @@ class _PuzzleLabScreenState extends State<PuzzleLabScreen> {
     final max = _maxKey();
     final totalKeys = max.toString();
 
+    final toyStart = _toyStartKey();
+    final toyEnd = _toyEndKey();
+    final toyStartHex = toyStart.toRadixString(16).padLeft(64, '0');
+    final toyEndHex = toyEnd.toRadixString(16).padLeft(64, '0');
+
     final selectedPreset = kBitcoinPuzzlePresetsById[_selectedPuzzleId] ?? kBitcoinPuzzlePresets.first;
     final puzzleBits = selectedPreset.bits;
     final puzzleStart = _puzzleStartKey(puzzleBits);
@@ -322,6 +426,8 @@ class _PuzzleLabScreenState extends State<PuzzleLabScreen> {
     final puzzleEndHex = puzzleEnd.toRadixString(16).padLeft(64, '0');
 
     final filtered = _filteredPresets();
+    final simSelectedPreset = kBitcoinPuzzlePresetsById[_simulatePuzzleId] ?? kBitcoinPuzzlePresets.first;
+    final simFiltered = _filteredSimulationPresets();
 
     return Scaffold(
       appBar: AppBar(
@@ -379,6 +485,7 @@ class _PuzzleLabScreenState extends State<PuzzleLabScreen> {
                   const SizedBox(height: 8),
                   Text(
                     'Treino: o app gera um Toy Puzzle (keyspace pequeno) e você tenta achar a chave.\n\n'
+                    'Simulação: você escolhe um preset de Bitcoin Puzzle, mas o app gera um alvo toy (com o mesmo número de bits quando suportado) para testar estratégias (sequencial/aleatória).\n\n'
                     'Bitcoin Puzzle: mostra os puzzles reais (endereços) e permite verificar uma chave que você já possua, mas não tenta “adivinhar” chaves de puzzles reais. Isso não é viável computacionalmente e também pode ser usado de forma indevida.',
                     style: Theme.of(context).textTheme.bodyMedium,
                   ),
@@ -387,6 +494,188 @@ class _PuzzleLabScreenState extends State<PuzzleLabScreen> {
             ),
           ),
           const SizedBox(height: 16),
+          if (_mode == _PuzzleLabMode.treino)
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Simulação (estilo Bitcoin Puzzle)',
+                      style: Theme.of(context).textTheme.titleLarge,
+                    ),
+                    const SizedBox(height: 8),
+                    SwitchListTile.adaptive(
+                      contentPadding: EdgeInsets.zero,
+                      value: _simulateBitcoinPuzzle,
+                      onChanged: _running
+                          ? null
+                          : (v) {
+                              setState(() {
+                                _simulateBitcoinPuzzle = v;
+                                _message = null;
+                              });
+                              if (v) {
+                                _applySimulationPreset(_simulatePuzzleId);
+                              }
+                            },
+                      title: const Text('Ativar simulação com preset'),
+                      subtitle: const Text('Gera um alvo toy no range do preset (8..32 bits).'),
+                    ),
+                    if (_simulateBitcoinPuzzle) ...[
+                      const SizedBox(height: 12),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              'Selecionado: Puzzle #${simSelectedPreset.id} (${simSelectedPreset.bits} bits)',
+                              style: Theme.of(context).textTheme.titleMedium,
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Chip(
+                            label: Text(_statusLabel(simSelectedPreset)),
+                            backgroundColor: _statusColor(context, simSelectedPreset.status).withValues(alpha: 0.12),
+                            side: BorderSide(color: _statusColor(context, simSelectedPreset.status).withValues(alpha: 0.35)),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        'Recompensa (do preset): ${simSelectedPreset.rewardBtc} ₿',
+                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                              fontWeight: FontWeight.w700,
+                            ),
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        'Range (private key) simulado: [2^${_toyBitLength - 1}, 2^$_toyBitLength - 1]\n'
+                        'Início: $toyStartHex\n'
+                        'Fim:    $toyEndHex',
+                        style: const TextStyle(fontFamily: 'monospace', fontSize: 12),
+                      ),
+                      const SizedBox(height: 16),
+                      Text(
+                        'Lista',
+                        style: Theme.of(context).textTheme.titleMedium,
+                      ),
+                      const SizedBox(height: 8),
+                      TextField(
+                        decoration: const InputDecoration(
+                          labelText: 'Buscar por # ou endereço',
+                          prefixIcon: Icon(Icons.search),
+                        ),
+                        onChanged: (v) {
+                          setState(() {
+                            _simulateQuery = v;
+                          });
+                        },
+                      ),
+                      const SizedBox(height: 8),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: [
+                          FilterChip(
+                            selected: _simulateStatusFilter == null,
+                            label: const Text('Todos'),
+                            onSelected: (_) {
+                              setState(() {
+                                _simulateStatusFilter = null;
+                              });
+                            },
+                          ),
+                          FilterChip(
+                            selected: _simulateStatusFilter == BitcoinPuzzleSolveStatus.unsolved,
+                            label: const Text('Unsolved'),
+                            onSelected: (_) {
+                              setState(() {
+                                _simulateStatusFilter = BitcoinPuzzleSolveStatus.unsolved;
+                              });
+                            },
+                          ),
+                          FilterChip(
+                            selected: _simulateStatusFilter == BitcoinPuzzleSolveStatus.solved,
+                            label: const Text('Solved'),
+                            onSelected: (_) {
+                              setState(() {
+                                _simulateStatusFilter = BitcoinPuzzleSolveStatus.solved;
+                              });
+                            },
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      Text(
+                        'Mostrando ${simFiltered.length} de ${kBitcoinPuzzlePresets.length}',
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
+                      const SizedBox(height: 8),
+                      ListView.separated(
+                        shrinkWrap: true,
+                        physics: const NeverScrollableScrollPhysics(),
+                        itemCount: simFiltered.length,
+                        separatorBuilder: (_, __) => const Divider(height: 16),
+                        itemBuilder: (context, index) {
+                          final p = simFiltered[index];
+                          final isSelected = p.id == simSelectedPreset.id;
+                          final statusColor = _statusColor(context, p.status);
+
+                          return ListTile(
+                            contentPadding: EdgeInsets.zero,
+                            leading: CircleAvatar(
+                              backgroundColor:
+                                  isSelected ? Theme.of(context).colorScheme.primary : Theme.of(context).colorScheme.surfaceContainerHighest,
+                              foregroundColor: isSelected ? Theme.of(context).colorScheme.onPrimary : Theme.of(context).colorScheme.onSurface,
+                              child: Text(
+                                '${p.id}',
+                                style: const TextStyle(fontWeight: FontWeight.w800),
+                              ),
+                            ),
+                            title: Text('Puzzle #${p.id} • ${p.bits} bits'),
+                            subtitle: Text(
+                              p.address,
+                              style: const TextStyle(fontFamily: 'monospace', fontSize: 12),
+                            ),
+                            trailing: Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              crossAxisAlignment: CrossAxisAlignment.end,
+                              children: [
+                                Text(
+                                  '${p.rewardBtc} ₿',
+                                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                                        fontWeight: FontWeight.w800,
+                                      ),
+                                ),
+                                const SizedBox(height: 4),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                                  decoration: BoxDecoration(
+                                    color: statusColor.withValues(alpha: 0.12),
+                                    borderRadius: BorderRadius.circular(999),
+                                    border: Border.all(color: statusColor.withValues(alpha: 0.35)),
+                                  ),
+                                  child: Text(
+                                    _statusLabel(p),
+                                    style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700),
+                                  ),
+                                ),
+                              ],
+                            ),
+                            onTap: _running
+                                ? null
+                                : () {
+                                    _applySimulationPreset(p.id);
+                                  },
+                          );
+                        },
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ),
           if (_mode == _PuzzleLabMode.treino)
             Card(
               child: Padding(
@@ -528,6 +817,15 @@ class _PuzzleLabScreenState extends State<PuzzleLabScreen> {
                         onPressed: _running ? _stop : _start,
                         icon: Icon(_running ? Icons.stop : Icons.play_arrow),
                         label: Text(_running ? 'Parar' : 'Iniciar busca'),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    SizedBox(
+                      width: double.infinity,
+                      child: OutlinedButton.icon(
+                        onPressed: (!_running && _toyTargetAddress != null) ? _repeatTest : null,
+                        icon: const Icon(Icons.replay),
+                        label: const Text('Repetir teste (mesmo alvo)'),
                       ),
                     ),
                     if (_message != null) ...[
