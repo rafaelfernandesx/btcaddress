@@ -134,6 +134,20 @@ class _MyHomePageState extends State<MyHomePage> with SingleTickerProviderStateM
     });
   }
 
+  void _clearOutputs() {
+    setState(() {
+      p2pkhController.clear();
+      p2pkhcController.clear();
+      ripemdController.clear();
+      ripemdcController.clear();
+      pubKeyHexController.clear();
+      pubKeyHexcController.clear();
+      privKeyHexController.clear();
+      privKeyWifController.clear();
+      privKeyWifcController.clear();
+    });
+  }
+
   void update() {
     setState(() {
       p2pkhController.text = btc.getAddress();
@@ -194,8 +208,8 @@ class _MyHomePageState extends State<MyHomePage> with SingleTickerProviderStateM
       final url = 'https://blockchain.info/q/addressbalance/$address';
       final response = await Dio().get(url);
       final balance = response.data;
-      final btcBalance = (balance / 100000000).toStringAsFixed(8);
-      return '$btcBalance BTC';
+
+      return '$balance BTC';
     } catch (e) {
       return 'Erro ao consultar';
     }
@@ -324,7 +338,11 @@ class _MyHomePageState extends State<MyHomePage> with SingleTickerProviderStateM
                         onSelectionChanged: (Set<String> newSelection) {
                           setState(() {
                             _inputMethod = newSelection.first;
+                            seedController.clear();
+                            hexController.clear();
+                            wifController.clear();
                           });
+                          _clearOutputs();
                         },
                       ),
                     ),
@@ -359,23 +377,42 @@ class _MyHomePageState extends State<MyHomePage> with SingleTickerProviderStateM
                         labelText: 'Chave Privada (HEX)',
                         hintText: 'Digite uma chave privada em formato HEX',
                         prefixIcon: Icon(Icons.tag),
+                        helperText: 'Gera automaticamente ao digitar (padding à esquerda até 64 caracteres).',
                       ),
                       inputFormatters: [
                         FilteringTextInputFormatter.allow(RegExp(r'[0-9a-fA-F]')),
                       ],
                       onChanged: (value) {
-                        if (value.isNotEmpty && value.length == 64) {
-                          try {
-                            btc.setPrivateKeyHex(value);
-                            update();
-                          } catch (e) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(
-                                content: Text('HEX inválido'),
-                                duration: Duration(seconds: 2),
-                              ),
-                            );
-                          }
+                        if (value.isEmpty) {
+                          _clearOutputs();
+                          return;
+                        }
+
+                        if (value.length > 64) {
+                          _clearOutputs();
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              content: Text('HEX grande demais (máx. 64 caracteres).'),
+                              duration: Duration(seconds: 2),
+                              behavior: SnackBarBehavior.floating,
+                            ),
+                          );
+                          return;
+                        }
+
+                        final padded = value.padLeft(64, '0');
+                        try {
+                          btc.setPrivateKeyHex(padded);
+                          update();
+                        } catch (_) {
+                          _clearOutputs();
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              content: Text('HEX inválido.'),
+                              duration: Duration(seconds: 2),
+                              behavior: SnackBarBehavior.floating,
+                            ),
+                          );
                         }
                       },
                     ),
