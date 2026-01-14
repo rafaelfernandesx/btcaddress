@@ -294,6 +294,10 @@ class BitcoinTOOL {
     final key = BigInt.parse(k, radix: 16);
     final maxKey = ecdsa.n - BigInt.one;
 
+    if (key == BigInt.zero) {
+      throw Exception('Private Key is not in the 1,n-1 range');
+    }
+
     if (key > maxKey) {
       throw Exception('Private Key is not in the 1,n-1 range');
     }
@@ -305,6 +309,10 @@ class BitcoinTOOL {
     var hash = HEX.encode(sha256.convert(seed.codeUnits).bytes);
     var k = BigInt.parse(hash, radix: 16);
     final maxKey = ecdsa.n - BigInt.one;
+
+    if (k == BigInt.zero) {
+      throw Exception('Private Key is not in the 1,n-1 range');
+    }
 
     if (k > maxKey) {
       throw Exception('Private Key is not in the 1,n-1 range');

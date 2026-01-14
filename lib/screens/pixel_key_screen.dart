@@ -1,8 +1,7 @@
-import 'dart:math' as math;
-
 import 'package:btcaddress/btc_tool.dart';
 import 'package:btcaddress/models/address_model.dart';
 import 'package:btcaddress/screens/address_detail_screen.dart';
+import 'package:btcaddress/widgets/copyable_textfield.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -15,128 +14,96 @@ class PixelKeyScreen extends StatefulWidget {
 
 class _PixelKeyScreenState extends State<PixelKeyScreen> {
   static const int _bytesLen = 32; // 256-bit private key
-  static const int _cols = 8; // 8x4 = 32 pixels
+  static const int _valueCount = 256; // 0..255
 
   final BitcoinTOOL _btc = BitcoinTOOL();
   final List<int> _bytes = List<int>.filled(_bytesLen, 0);
 
-  String _hexPreview = ''.padLeft(64, '0');
-  String _status = 'Toque nos pixels para editar a chave.';
+  final TextEditingController _hexController = TextEditingController();
+  final TextEditingController _hexEffectiveController = TextEditingController();
+  final TextEditingController _legacyController = TextEditingController();
+  final TextEditingController _compressedController = TextEditingController();
+
+  int _selectedByteIndex = 0;
+  String _error = '';
+  bool _updatingFromUi = false;
 
   @override
   void initState() {
     super.initState();
-    _syncHex();
+    _applyHexInput('');
   }
 
-  void _syncHex() {
-    final hex = _bytes.map((b) => b.toRadixString(16).padLeft(2, '0')).join();
-    setState(() {
-      _hexPreview = hex;
-    });
+  @override
+  void dispose() {
+    _hexController.dispose();
+    _hexEffectiveController.dispose();
+    _legacyController.dispose();
+    _compressedController.dispose();
+    super.dispose();
   }
 
-  void _randomize() {
-    final r = math.Random.secure();
-    for (int i = 0; i < _bytes.length; i++) {
-      _bytes[i] = r.nextInt(256);
+  String _sanitizeHex(String input) {
+    final cleaned = input.replaceAll(RegExp(r'[^0-9a-fA-F]'), '').toLowerCase();
+    if (cleaned.length <= 64) return cleaned;
+    // Mantém os últimos 64 caracteres (útil para colagens com prefixo/extra)
+    return cleaned.substring(cleaned.length - 64);
+  }
+
+  void _applyHexInput(String input, {bool forceControllerToEffective = false}) {
+    if (_updatingFromUi) return;
+
+    final sanitized = _sanitizeHex(input);
+    final effective = sanitized.padLeft(64, '0');
+
+    for (int i = 0; i < _bytesLen; i++) {
+      _bytes[i] = int.parse(effective.substring(i * 2, i * 2 + 2), radix: 16);
     }
-    _syncHex();
-  }
 
-  void _clear() {
-    for (int i = 0; i < _bytes.length; i++) {
-      _bytes[i] = 0;
+    String legacy = '';
+    String compressed = '';
+    String error = '';
+
+    final keyInt = BigInt.parse(effective, radix: 16);
+    if (keyInt == BigInt.zero) {
+      error = 'Chave inválida: valor 0.';
+    } else {
+      try {
+        _btc.setPrivateKeyHex(effective);
+        legacy = _btc.getAddress(false);
+        compressed = _btc.getAddress(true);
+      } catch (_) {
+        error = 'Chave inválida (fora do range 1..n-1).';
+      }
     }
-    _syncHex();
-  }
 
-  Future<void> _setByteDialog(int index) async {
-    int temp = _bytes[index];
-    final result = await showDialog<int>(
-      context: context,
-      builder: (ctx) {
-        return AlertDialog(
-          title: Text('Byte ${index + 1}'),
-          content: StatefulBuilder(
-            builder: (context, setStateLocal) {
-              return Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text('Valor: $temp (0x${temp.toRadixString(16).padLeft(2, '0')})'),
-                  const SizedBox(height: 12),
-                  Slider(
-                    min: 0,
-                    max: 255,
-                    divisions: 255,
-                    value: temp.toDouble(),
-                    label: temp.toString(),
-                    onChanged: (v) => setStateLocal(() => temp = v.round()),
-                  ),
-                ],
-              );
-            },
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(ctx),
-              child: Text('Cancelar'),
-            ),
-            ElevatedButton(
-              onPressed: () => Navigator.pop(ctx, temp),
-              child: Text('Aplicar'),
-            ),
-          ],
-        );
-      },
-    );
-
-    if (result == null) return;
     setState(() {
-      _bytes[index] = result;
-      _status = 'Byte ${index + 1} definido para $result.';
+      _error = error;
+      _hexEffectiveController.text = effective;
+      _legacyController.text = legacy;
+      _compressedController.text = compressed;
     });
-    _syncHex();
+
+    if (forceControllerToEffective) {
+      _updatingFromUi = true;
+      _hexController.text = effective;
+      _hexController.selection = TextSelection.fromPosition(
+        TextPosition(offset: _hexController.text.length),
+      );
+      _updatingFromUi = false;
+    }
   }
 
-  Color _byteColor(int value, Brightness brightness) {
-    // Visual: escala de cinza (0..255). No tema escuro, um leve boost.
-    final v = brightness == Brightness.dark ? (value * 0.9 + 20).clamp(0, 255).round() : value;
-    return Color.fromARGB(255, v, v, v);
-  }
-
-  Future<void> _copyHex() async {
-    await Clipboard.setData(ClipboardData(text: _hexPreview));
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('HEX copiado!'),
-        behavior: SnackBarBehavior.floating,
-        duration: Duration(seconds: 2),
-      ),
-    );
+  void _setByteValue(int value) {
+    setState(() {
+      _bytes[_selectedByteIndex] = value;
+    });
+    final effective = _bytes.map((b) => b.toRadixString(16).padLeft(2, '0')).join();
+    _applyHexInput(effective, forceControllerToEffective: true);
   }
 
   Future<void> _generateWalletFromPixels() async {
-    // Evitar chave 0...0
-    final allZero = _bytes.every((b) => b == 0);
-    if (allZero) {
-      setState(() {
-        _status = 'Chave inválida: todos os bytes são 0.';
-      });
-      return;
-    }
-
-    try {
-      _btc.setPrivateKeyHex(_hexPreview);
-    } catch (_) {
-      setState(() {
-        _status = 'Chave inválida (fora do range). Tente alterar alguns pixels.';
-      });
-      return;
-    }
-
+    if (_error.isNotEmpty) return;
     final address = _buildAddressModel();
     if (!mounted) return;
     Navigator.push(
@@ -149,7 +116,7 @@ class _PixelKeyScreenState extends State<PixelKeyScreen> {
 
   AddressModel _buildAddressModel() {
     return AddressModel(
-      seed: 'pixelkey:${_hexPreview.substring(0, 8)}…',
+      seed: 'pixelkey:${_hexEffectiveController.text.substring(0, 8)}…',
       addressCompressed: _btc.getAddress(true),
       addressUncompressed: _btc.getAddress(false),
       privateKeyHex: _btc.getPrivateKey(),
@@ -163,23 +130,11 @@ class _PixelKeyScreenState extends State<PixelKeyScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final brightness = Theme.of(context).brightness;
+    final selectedValue = _bytes[_selectedByteIndex];
 
     return Scaffold(
       appBar: AppBar(
         title: Text('PixelKey (Bloco de Damas)'),
-        actions: [
-          IconButton(
-            tooltip: 'Aleatório',
-            onPressed: _randomize,
-            icon: const Icon(Icons.casino),
-          ),
-          IconButton(
-            tooltip: 'Zerar',
-            onPressed: _clear,
-            icon: const Icon(Icons.restart_alt),
-          ),
-        ],
       ),
       body: ListView(
         padding: const EdgeInsets.all(16),
@@ -196,8 +151,8 @@ class _PixelKeyScreenState extends State<PixelKeyScreen> {
                   ),
                   const SizedBox(height: 8),
                   Text(
-                    'Cada “pixel” é 1 byte (0–255) da sua chave privada (32 bytes).\n'
-                    'Toque: +1 | Duplo toque: -1 | Pressione: escolher valor.',
+                    'Selecione um byte (1..32) e depois escolha o valor na grade 0..255.\n'
+                    'Você também pode editar o HEX manualmente: a grade e os bytes acompanham.',
                     style: Theme.of(context).textTheme.bodyMedium,
                   ),
                 ],
@@ -211,38 +166,109 @@ class _PixelKeyScreenState extends State<PixelKeyScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
+                  Text(
+                    'Chave privada (HEX)',
+                    style: Theme.of(context).textTheme.titleLarge,
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: _hexController,
+                    decoration: const InputDecoration(
+                      labelText: 'Editar HEX (0..64 chars)',
+                      prefixIcon: Icon(Icons.tag),
+                      helperText: 'A chave efetiva usa padding à esquerda até 64 caracteres.',
+                    ),
+                    inputFormatters: [
+                      FilteringTextInputFormatter.allow(RegExp(r'[0-9a-fA-F]')),
+                      LengthLimitingTextInputFormatter(64),
+                    ],
+                    onChanged: (v) => _applyHexInput(v),
+                  ),
+                  const SizedBox(height: 12),
+                  CopyableTextField(
+                    controller: _hexEffectiveController,
+                    label: 'HEX efetivo (64 chars)',
+                    prefixIcon: Icons.lock_outline,
+                  ),
+                  if (_error.isNotEmpty) ...[
+                    const SizedBox(height: 12),
+                    Text(
+                      _error,
+                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                            color: Theme.of(context).colorScheme.error,
+                          ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 16),
+          if (_error.isEmpty && _compressedController.text.isNotEmpty) ...[
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Endereços',
+                      style: Theme.of(context).textTheme.titleLarge,
+                    ),
+                    const SizedBox(height: 12),
+                    CopyableTextField(
+                      controller: _legacyController,
+                      label: 'Legacy (não comprimido)',
+                      prefixIcon: Icons.account_balance_wallet_outlined,
+                    ),
+                    const SizedBox(height: 12),
+                    CopyableTextField(
+                      controller: _compressedController,
+                      label: 'Comprimido (recomendado)',
+                      prefixIcon: Icons.account_balance_wallet,
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 16),
+          ],
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
                   Row(
                     children: [
                       Expanded(
                         child: Text(
-                          'Chave Privada (HEX)',
+                          'Byte selecionado: ${_selectedByteIndex + 1}  |  Valor: $selectedValue (0x${selectedValue.toRadixString(16).padLeft(2, '0')})',
                           style: Theme.of(context).textTheme.titleMedium,
                         ),
                       ),
-                      IconButton(
-                        tooltip: 'Copiar HEX',
-                        onPressed: _copyHex,
-                        icon: const Icon(Icons.copy),
-                      ),
                     ],
                   ),
-                  const SizedBox(height: 8),
-                  Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(12),
-                      color: Theme.of(context).colorScheme.surface,
-                      border: Border.all(
-                        color: Theme.of(context).dividerColor.withValues(alpha: 0.4),
-                      ),
-                    ),
-                    child: SelectableText(
-                      _hexPreview,
-                      style: const TextStyle(
-                        fontFamily: 'monospace',
-                        fontSize: 12,
-                      ),
+                  const SizedBox(height: 12),
+                  SizedBox(
+                    height: 54,
+                    child: ListView.separated(
+                      scrollDirection: Axis.horizontal,
+                      itemCount: _bytesLen,
+                      separatorBuilder: (_, __) => const SizedBox(width: 8),
+                      itemBuilder: (context, i) {
+                        final isSelected = i == _selectedByteIndex;
+                        final byte = _bytes[i];
+                        return ChoiceChip(
+                          selected: isSelected,
+                          label: Text('${i + 1}: ${byte.toRadixString(16).padLeft(2, '0').toUpperCase()}'),
+                          onSelected: (_) {
+                            setState(() {
+                              _selectedByteIndex = i;
+                            });
+                          },
+                        );
+                      },
                     ),
                   ),
                 ],
@@ -257,79 +283,50 @@ class _PixelKeyScreenState extends State<PixelKeyScreen> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    'Pixels (32 bytes)',
-                    style: Theme.of(context).textTheme.titleMedium,
+                    'Grade 0..255 (clique para marcar e aplicar)',
+                    style: Theme.of(context).textTheme.titleLarge,
                   ),
                   const SizedBox(height: 12),
-                  LayoutBuilder(
-                    builder: (context, constraints) {
-                      final spacing = 8.0;
-                      final tileSize = (constraints.maxWidth - (spacing * (_cols - 1))) / _cols;
+                  GridView.builder(
+                    shrinkWrap: true,
+                    physics: const NeverScrollableScrollPhysics(),
+                    gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                      crossAxisCount: 16,
+                      mainAxisSpacing: 6,
+                      crossAxisSpacing: 6,
+                      childAspectRatio: 1,
+                    ),
+                    itemCount: _valueCount,
+                    itemBuilder: (context, value) {
+                      final isSelected = value == selectedValue;
+                      final hex = value.toRadixString(16).padLeft(2, '0').toUpperCase();
 
-                      return Wrap(
-                        spacing: spacing,
-                        runSpacing: spacing,
-                        children: List.generate(_bytesLen, (i) {
-                          final byte = _bytes[i];
-                          final row = i ~/ _cols;
-                          final col = i % _cols;
-                          final isChecker = (row + col).isEven;
+                      final bg = isSelected ? Theme.of(context).colorScheme.primary.withValues(alpha: 0.18) : Theme.of(context).colorScheme.surface;
 
-                          final base = Theme.of(context).colorScheme.surface;
-                          final checkerBg = isChecker ? base : base.withValues(alpha: 0.7);
-
-                          return SizedBox(
-                            width: tileSize,
-                            height: tileSize,
-                            child: Material(
-                              color: checkerBg,
-                              borderRadius: BorderRadius.circular(10),
-                              child: InkWell(
-                                borderRadius: BorderRadius.circular(10),
-                                onTap: () {
-                                  setState(() {
-                                    _bytes[i] = (byte + 1) & 0xFF;
-                                    _status = 'Byte ${i + 1}: ${_bytes[i]}';
-                                  });
-                                  _syncHex();
-                                },
-                                onDoubleTap: () {
-                                  setState(() {
-                                    _bytes[i] = (byte - 1) & 0xFF;
-                                    _status = 'Byte ${i + 1}: ${_bytes[i]}';
-                                  });
-                                  _syncHex();
-                                },
-                                onLongPress: () => _setByteDialog(i),
-                                child: Container(
-                                  decoration: BoxDecoration(
-                                    borderRadius: BorderRadius.circular(10),
-                                    border: Border.all(
-                                      color: Theme.of(context).dividerColor.withValues(alpha: 0.4),
-                                    ),
-                                  ),
-                                  child: Center(
-                                    child: Container(
-                                      width: tileSize * 0.70,
-                                      height: tileSize * 0.70,
-                                      decoration: BoxDecoration(
-                                        color: _byteColor(byte, brightness),
-                                        borderRadius: BorderRadius.circular(8),
-                                      ),
-                                    ),
-                                  ),
-                                ),
-                              ),
+                      return InkWell(
+                        borderRadius: BorderRadius.circular(10),
+                        onTap: () => _setByteValue(value),
+                        child: Container(
+                          decoration: BoxDecoration(
+                            color: bg,
+                            borderRadius: BorderRadius.circular(10),
+                            border: Border.all(
+                              color: isSelected ? Theme.of(context).colorScheme.primary : Theme.of(context).dividerColor.withValues(alpha: 0.35),
+                              width: isSelected ? 2 : 1,
                             ),
-                          );
-                        }),
+                          ),
+                          child: Center(
+                            child: Text(
+                              hex,
+                              style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                                    fontFamily: 'monospace',
+                                    fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
+                                  ),
+                            ),
+                          ),
+                        ),
                       );
                     },
-                  ),
-                  const SizedBox(height: 12),
-                  Text(
-                    _status,
-                    style: Theme.of(context).textTheme.bodySmall,
                   ),
                 ],
               ),
@@ -341,7 +338,7 @@ class _PixelKeyScreenState extends State<PixelKeyScreen> {
             child: ElevatedButton.icon(
               onPressed: _generateWalletFromPixels,
               icon: const Icon(Icons.account_balance_wallet),
-              label: const Text('Gerar carteira a partir dos pixels'),
+              label: const Text('Abrir detalhes da carteira'),
             ),
           ),
           const SizedBox(height: 80),
