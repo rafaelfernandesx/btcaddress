@@ -37,6 +37,7 @@ class _PuzzleLabScreenState extends State<PuzzleLabScreen> {
   int _toyBitLength = 20;
   bool _checkLegacy = true;
   bool _checkCompressed = true;
+  PuzzleSearchStrategy _toyStrategy = PuzzleSearchStrategy.sequential;
 
   bool _running = false;
   String? _message;
@@ -114,6 +115,7 @@ class _PuzzleLabScreenState extends State<PuzzleLabScreen> {
         bitLength: _toyBitLength,
         checkLegacy: _checkLegacy,
         checkCompressed: _checkCompressed,
+        strategy: _toyStrategy,
         onProgress: (p) {
           if (!mounted) return;
           setState(() {
@@ -483,6 +485,41 @@ class _PuzzleLabScreenState extends State<PuzzleLabScreen> {
                                 },
                         ),
                       ],
+                    ),
+                    const SizedBox(height: 12),
+                    Text(
+                      'Estratégia de busca',
+                      style: Theme.of(context).textTheme.titleMedium,
+                    ),
+                    const SizedBox(height: 8),
+                    SegmentedButton<PuzzleSearchStrategy>(
+                      segments: const [
+                        ButtonSegment(
+                          value: PuzzleSearchStrategy.sequential,
+                          label: Text('Sequencial'),
+                          icon: Icon(Icons.format_list_numbered),
+                        ),
+                        ButtonSegment(
+                          value: PuzzleSearchStrategy.random,
+                          label: Text('Aleatória'),
+                          icon: Icon(Icons.casino_outlined),
+                        ),
+                      ],
+                      selected: <PuzzleSearchStrategy>{_toyStrategy},
+                      onSelectionChanged: _running
+                          ? null
+                          : (selection) {
+                              setState(() {
+                                _toyStrategy = selection.first;
+                              });
+                            },
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      _toyStrategy == PuzzleSearchStrategy.random
+                          ? 'Aleatória: testa chaves em ordem pseudo-aleatória (educacional). Pode repetir tentativas e não garante achar em N passos.'
+                          : 'Sequencial: testa chaves de 1 até 2^bits-1 (educacional).',
+                      style: Theme.of(context).textTheme.bodySmall,
                     ),
                     const SizedBox(height: 12),
                     SizedBox(
