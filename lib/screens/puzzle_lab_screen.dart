@@ -37,21 +37,33 @@ class _PuzzleLabScreenState extends State<PuzzleLabScreen> {
   int _toyBitLength = 20;
   bool _checkLegacy = true;
   bool _checkCompressed = true;
-  PuzzleSearchStrategy _toyStrategy = PuzzleSearchStrategy.sequential;
+  final PuzzleSearchStrategy _toyStrategy = PuzzleSearchStrategy.sequential;
 
   int? _toyRandomSeed;
 
-  bool _simulateBitcoinPuzzle = false;
+  final bool _simulateBitcoinPuzzle = false;
   int _simulatePuzzleId = 1;
-  String _simulateQuery = '';
+  final String _simulateQuery = '';
   BitcoinPuzzleSolveStatus? _simulateStatusFilter;
 
   bool _running = false;
+  bool _runningRealPuzzle = false;
   String? _message;
   PuzzleSolveProgress? _progress;
   PuzzleSolveFound? _found;
 
-  // Toy puzzle helper (gera um alvo válido dentro do range)
+  // Real puzzle brute force
+  int? _realPuzzleId;
+  String? _realPuzzleAddress;
+  int _realPuzzleBits = 32;
+  int _realTestedKeys = 0;
+  int _realKeysPerSecond = 0;
+  BigInt _realCurrentKey = BigInt.zero;
+  DateTime? _realStartTime;
+  bool _realCheckLegacy = true;
+  bool _realCheckCompressed = true;
+
+  // Toy puzzle helper
   String? _toyPrivateKeyHex;
   String? _toyTargetAddress;
   bool _showToySolution = false;
@@ -186,10 +198,16 @@ class _PuzzleLabScreenState extends State<PuzzleLabScreen> {
   }
 
   Future<void> _stop() async {
-    await _solver.stop();
+    if (_running) {
+      await _solver.stop();
+    }
+    if (_runningRealPuzzle) {
+      _stopRealPuzzleBruteForce();
+    }
     if (!mounted) return;
     setState(() {
       _running = false;
+      _runningRealPuzzle = false;
       _message = 'Busca cancelada.';
     });
   }
@@ -206,7 +224,7 @@ class _PuzzleLabScreenState extends State<PuzzleLabScreen> {
       return;
     }
 
-    // Gera k no range de treino. No modo simulação, usa o range estilo Bitcoin Puzzle: [2^(n-1), 2^n-1].
+    // Gera k no range de treino.
     BigInt k;
     if (_simulateBitcoinPuzzle) {
       final bits = _toyBitLength;
@@ -219,13 +237,13 @@ class _PuzzleLabScreenState extends State<PuzzleLabScreen> {
       if (bits == 1) {
         k = BigInt.one;
       } else {
-        final offsetMax = 1 << (bits - 1); // 2^(bits-1) < 2^32 para bits<=32
+        final offsetMax = 1 << (bits - 1);
         final offset = random.nextInt(offsetMax);
         final intCandidate = (1 << (bits - 1)) + offset;
         k = BigInt.from(intCandidate);
       }
     } else {
-      // Range padrão: [1, 2^bits-1]. Para 32 bits, Random.nextInt não aceita 2^32.
+      // Range padrão: [1, 2^bits-1].
       int intCandidate;
       if (_toyBitLength == 32) {
         final hi = random.nextInt(1 << 16);
@@ -242,7 +260,6 @@ class _PuzzleLabScreenState extends State<PuzzleLabScreen> {
 
     final compressed = btc.getAddress(true);
 
-    // Por padrão, usa comprimido como alvo (mais comum)
     _targetController.text = compressed;
     _toyTargetController.text = compressed;
     _toyPrivKeyController.text = privHex;
@@ -317,6 +334,9 @@ class _PuzzleLabScreenState extends State<PuzzleLabScreen> {
       _candidatePrivKeyController.text = '';
       _candidateResult = null;
       _message = null;
+      _realPuzzleId = puzzleId;
+      _realPuzzleAddress = preset.address;
+      _realPuzzleBits = preset.bits;
     });
   }
 
@@ -408,6 +428,416 @@ class _PuzzleLabScreenState extends State<PuzzleLabScreen> {
     );
   }
 
+  // ==================== REAL PUZZLE BRUTE FORCE ====================
+  Future<void> _startRealPuzzleBruteForce() async {
+    if (_realPuzzleAddress == null || _realPuzzleAddress!.isEmpty) {
+      setState(() {
+        _message = 'Selecione um puzzle primeiro.';
+      });
+      return;
+    }
+
+    if (!_realCheckLegacy && !_realCheckCompressed) {
+      setState(() {
+        _message = 'Selecione pelo menos 1 tipo (Legacy/Comprimido).';
+      });
+      return;
+    }
+
+    setState(() {
+      _runningRealPuzzle = true;
+      _realTestedKeys = 0;
+      _realKeysPerSecond = 0;
+      _realStartTime = DateTime.now();
+      _message = 'Iniciando brute force no Puzzle #$_realPuzzleId ($_realPuzzleBits bits)...';
+    });
+
+    // Calcular range do puzzle
+    final startKey = _puzzleStartKey(_realPuzzleBits);
+    final endKey = _puzzleEndKey(_realPuzzleBits);
+
+    print('Iniciando brute force no puzzle $_realPuzzleId');
+    print('Range: $startKey a $endKey');
+    print('Total de chaves: ${endKey - startKey + BigInt.one}');
+
+    // Executar em um Isolate para não travar a UI
+    await _runBruteForceIsolate(startKey, endKey);
+  }
+
+  Future<void> _runBruteForceIsolate(BigInt startKey, BigInt endKey) async {
+    // Para fins educacionais, vou implementar uma versão simplificada
+    // Em produção, você usaria um Isolate real
+
+    BigInt current = startKey;
+    final targetAddress = _realPuzzleAddress!;
+    final checkLegacy = _realCheckLegacy;
+    final checkCompressed = _realCheckCompressed;
+
+    DateTime lastUpdate = DateTime.now();
+    int testedSinceLastUpdate = 0;
+
+    try {
+      while (_runningRealPuzzle && current <= endKey) {
+        // Converter chave para HEX
+        final privHex = current.toRadixString(16).padLeft(64, '0');
+
+        // Gerar endereços
+        final btc = BitcoinTOOL()..setPrivateKeyHex(privHex);
+
+        if (checkCompressed) {
+          final compressed = btc.getAddress(true);
+          if (compressed == targetAddress) {
+            _handleFoundKey(privHex, btc);
+            return;
+          }
+        }
+
+        if (checkLegacy) {
+          final legacy = btc.getAddress(false);
+          if (legacy == targetAddress) {
+            _handleFoundKey(privHex, btc);
+            return;
+          }
+        }
+
+        _realTestedKeys++;
+        testedSinceLastUpdate++;
+
+        // Atualizar estatísticas a cada segundo
+        final now = DateTime.now();
+        if (now.difference(lastUpdate).inMilliseconds >= 1000) {
+          _realKeysPerSecond = testedSinceLastUpdate;
+          testedSinceLastUpdate = 0;
+          lastUpdate = now;
+
+          // Atualizar UI
+          if (mounted) {
+            setState(() {
+              _realCurrentKey = current;
+            });
+          }
+        }
+
+        // Incrementar chave
+        current = current + BigInt.one;
+
+        // Dar tempo para UI (remover em produção para máxima velocidade)
+        if (_realTestedKeys % 1000 == 0) {
+          await Future.delayed(const Duration(milliseconds: 1));
+        }
+      }
+
+      if (mounted && _runningRealPuzzle) {
+        setState(() {
+          _runningRealPuzzle = false;
+          _message = 'Puzzle não encontrado no range especificado.';
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _runningRealPuzzle = false;
+          _message = 'Erro durante brute force: $e';
+        });
+      }
+    }
+  }
+
+  void _handleFoundKey(String privHex, BitcoinTOOL btc) {
+    if (!mounted) return;
+
+    final compressed = btc.getAddress(true);
+    final legacy = btc.getAddress(false);
+
+    setState(() {
+      _runningRealPuzzle = false;
+      _foundPrivKeyController.text = privHex;
+      _foundCompressedController.text = compressed;
+      _foundLegacyController.text = legacy;
+
+      // Criar resultado encontrado
+      _found = PuzzleSolveFound(
+        privateKeyHex: privHex,
+        addressCompressed: compressed,
+        addressLegacy: legacy,
+        tested: _realTestedKeys,
+      );
+
+      _message = 'ENCONTRADO! Puzzle #$_realPuzzleId resolvido após $_realTestedKeys tentativas!';
+    });
+
+    // Mostrar alerta
+    _showPuzzleSolvedAlert();
+  }
+
+  void _stopRealPuzzleBruteForce() {
+    setState(() {
+      _runningRealPuzzle = false;
+    });
+  }
+
+  void _showPuzzleSolvedAlert() {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('🎉 Puzzle Resolvido!'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Parabéns! Você resolveu o Puzzle #$_realPuzzleId!', style: const TextStyle(fontWeight: FontWeight.bold)),
+            const SizedBox(height: 12),
+            const Text('Esta é uma demonstração educacional. Em um puzzle real:'),
+            const SizedBox(height: 8),
+            const Text('• A recompensa seria real'),
+            const Text('• O processo levaria milhões de anos com hardware normal'),
+            const Text('• A chave privada precisaria ser mantida em segredo'),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Fechar'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              Navigator.pop(context);
+              _openFoundDetails();
+            },
+            child: const Text('Ver Detalhes'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildRealPuzzleBruteForcePanel() {
+    final totalKeysEstimate =
+        _realPuzzleBits < 64 ? (BigInt.one << _realPuzzleBits) - (BigInt.one << (_realPuzzleBits - 1)) : BigInt.parse('Muito grande para exibir');
+
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Brute Force (Puzzle Real)',
+              style: Theme.of(context).textTheme.titleLarge,
+            ),
+            const SizedBox(height: 12),
+            Text(
+              '⚠️ AVISO: Esta é uma demonstração educacional.\n'
+              'Puzzles reais são praticamente impossíveis de resolver com hardware comum.',
+              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                    color: Theme.of(context).colorScheme.error,
+                  ),
+            ),
+            const SizedBox(height: 12),
+
+            // Estatísticas
+            if (_runningRealPuzzle) ...[
+              Text(
+                'Status: Buscando...',
+                style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                      color: Theme.of(context).colorScheme.primary,
+                    ),
+              ),
+              const SizedBox(height: 8),
+              LinearProgressIndicator(
+                value: null, // Indeterminado
+                backgroundColor: Theme.of(context).colorScheme.surfaceContainerHighest,
+              ),
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Chaves testadas:',
+                          style: Theme.of(context).textTheme.bodySmall,
+                        ),
+                        Text(
+                          '$_realTestedKeys',
+                          style: Theme.of(context).textTheme.titleMedium,
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 16),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Velocidade:',
+                          style: Theme.of(context).textTheme.bodySmall,
+                        ),
+                        Text(
+                          '$_realKeysPerSecond keys/s',
+                          style: Theme.of(context).textTheme.titleMedium,
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'Chave atual: ${_realCurrentKey.toRadixString(16).padLeft(64, '0').substring(0, 16)}...',
+                style: const TextStyle(fontFamily: 'monospace', fontSize: 12),
+              ),
+              const SizedBox(height: 12),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton.icon(
+                  onPressed: _stop,
+                  icon: const Icon(Icons.stop),
+                  label: const Text('Parar Busca'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Theme.of(context).colorScheme.error,
+                    foregroundColor: Theme.of(context).colorScheme.onError,
+                  ),
+                ),
+              ),
+            ] else ...[
+              Text(
+                'Puzzle #$_realPuzzleId ($_realPuzzleBits bits)',
+                style: Theme.of(context).textTheme.titleMedium,
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'Range: 2^${_realPuzzleBits - 1} a 2^$_realPuzzleBits - 1',
+                style: Theme.of(context).textTheme.bodyMedium,
+              ),
+              const SizedBox(height: 4),
+              Text(
+                'Total estimado: $totalKeysEstimate chaves',
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+              const SizedBox(height: 12),
+
+              // Opções de busca
+              Text(
+                'Tipos de endereço para verificar:',
+                style: Theme.of(context).textTheme.bodyMedium,
+              ),
+              const SizedBox(height: 8),
+              Wrap(
+                spacing: 12,
+                runSpacing: 6,
+                children: [
+                  FilterChip(
+                    label: const Text('Legacy'),
+                    selected: _realCheckLegacy,
+                    onSelected: _runningRealPuzzle
+                        ? null
+                        : (v) {
+                            setState(() {
+                              _realCheckLegacy = v;
+                            });
+                          },
+                  ),
+                  FilterChip(
+                    label: const Text('Comprimido'),
+                    selected: _realCheckCompressed,
+                    onSelected: _runningRealPuzzle
+                        ? null
+                        : (v) {
+                            setState(() {
+                              _realCheckCompressed = v;
+                            });
+                          },
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
+
+              // Estimativa de tempo
+              _buildTimeEstimate(),
+              const SizedBox(height: 12),
+
+              // Botões de ação
+              Row(
+                children: [
+                  Expanded(
+                    child: ElevatedButton.icon(
+                      onPressed: _runningRealPuzzle ? null : _startRealPuzzleBruteForce,
+                      icon: const Icon(Icons.play_arrow),
+                      label: const Text('Iniciar Busca'),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: _runningRealPuzzle
+                          ? null
+                          : () {
+                              // Limpar resultados anteriores
+                              setState(() {
+                                _found = null;
+                                _foundPrivKeyController.text = '';
+                                _foundCompressedController.text = '';
+                                _foundLegacyController.text = '';
+                                _message = null;
+                              });
+                            },
+                      icon: const Icon(Icons.clear),
+                      label: const Text('Limpar'),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildTimeEstimate() {
+    if (_realPuzzleBits <= 32) {
+      return Container(
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: Theme.of(context).colorScheme.surfaceContainerHighest,
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Estimativa (aproximada):',
+              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                    fontWeight: FontWeight.bold,
+                  ),
+            ),
+            const SizedBox(height: 4),
+            const Text('• 32 bits: Dias a semanas (CPU comum)'),
+            const Text('• 40 bits: Meses a anos'),
+            const Text('• 50 bits: Séculos'),
+            const Text('• 66+ bits: Impossível com tecnologia atual'),
+          ],
+        ),
+      );
+    } else {
+      return Container(
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: Theme.of(context).colorScheme.errorContainer,
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Text(
+          '⚠️ Este puzzle tem $_realPuzzleBits bits.\n'
+          'Não é viável resolver com hardware comum.',
+          style: Theme.of(context).textTheme.bodyMedium,
+        ),
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final max = _maxKey();
@@ -454,7 +884,7 @@ class _PuzzleLabScreenState extends State<PuzzleLabScreen> {
                     ButtonSegment(value: _PuzzleLabMode.bitcoinPuzzle, label: Text('Bitcoin Puzzle')),
                   ],
                   selected: <_PuzzleLabMode>{_mode},
-                  onSelectionChanged: _running
+                  onSelectionChanged: (_running || _runningRealPuzzle)
                       ? null
                       : (selection) {
                           final next = selection.first;
@@ -485,8 +915,9 @@ class _PuzzleLabScreenState extends State<PuzzleLabScreen> {
                   const SizedBox(height: 8),
                   Text(
                     'Treino: o app gera um Toy Puzzle (keyspace pequeno) e você tenta achar a chave.\n\n'
-                    'Simulação: você escolhe um preset de Bitcoin Puzzle, mas o app gera um alvo toy (com o mesmo número de bits quando suportado) para testar estratégias (sequencial/aleatória).\n\n'
-                    'Bitcoin Puzzle: mostra os puzzles reais (endereços) e permite verificar uma chave que você já possua, mas não tenta “adivinhar” chaves de puzzles reais. Isso não é viável computacionalmente e também pode ser usado de forma indevida.',
+                    'Bitcoin Puzzle: mostra os puzzles reais com funcionalidade de brute force '
+                    '(apenas para demonstração educacional).\n\n'
+                    '⚠️ Brute force em puzzles reais não é viável computacionalmente para puzzles maiores que 32 bits.',
                     style: Theme.of(context).textTheme.bodyMedium,
                   ),
                 ],
@@ -494,7 +925,7 @@ class _PuzzleLabScreenState extends State<PuzzleLabScreen> {
             ),
           ),
           const SizedBox(height: 16),
-          if (_mode == _PuzzleLabMode.treino)
+          if (_mode == _PuzzleLabMode.treino) ...[
             Card(
               child: Padding(
                 padding: const EdgeInsets.all(16),
@@ -502,189 +933,7 @@ class _PuzzleLabScreenState extends State<PuzzleLabScreen> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      'Simulação (estilo Bitcoin Puzzle)',
-                      style: Theme.of(context).textTheme.titleLarge,
-                    ),
-                    const SizedBox(height: 8),
-                    SwitchListTile.adaptive(
-                      contentPadding: EdgeInsets.zero,
-                      value: _simulateBitcoinPuzzle,
-                      onChanged: _running
-                          ? null
-                          : (v) {
-                              setState(() {
-                                _simulateBitcoinPuzzle = v;
-                                _message = null;
-                              });
-                              if (v) {
-                                _applySimulationPreset(_simulatePuzzleId);
-                              }
-                            },
-                      title: const Text('Ativar simulação com preset'),
-                      subtitle: const Text('Gera um alvo toy no range do preset (8..32 bits).'),
-                    ),
-                    if (_simulateBitcoinPuzzle) ...[
-                      const SizedBox(height: 12),
-                      Row(
-                        children: [
-                          Expanded(
-                            child: Text(
-                              'Selecionado: Puzzle #${simSelectedPreset.id} (${simSelectedPreset.bits} bits)',
-                              style: Theme.of(context).textTheme.titleMedium,
-                            ),
-                          ),
-                          const SizedBox(width: 12),
-                          Chip(
-                            label: Text(_statusLabel(simSelectedPreset)),
-                            backgroundColor: _statusColor(context, simSelectedPreset.status).withValues(alpha: 0.12),
-                            side: BorderSide(color: _statusColor(context, simSelectedPreset.status).withValues(alpha: 0.35)),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
-                        'Recompensa (do preset): ${simSelectedPreset.rewardBtc} ₿',
-                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                              fontWeight: FontWeight.w700,
-                            ),
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
-                        'Range (private key) simulado: [2^${_toyBitLength - 1}, 2^$_toyBitLength - 1]\n'
-                        'Início: $toyStartHex\n'
-                        'Fim:    $toyEndHex',
-                        style: const TextStyle(fontFamily: 'monospace', fontSize: 12),
-                      ),
-                      const SizedBox(height: 16),
-                      Text(
-                        'Lista',
-                        style: Theme.of(context).textTheme.titleMedium,
-                      ),
-                      const SizedBox(height: 8),
-                      TextField(
-                        decoration: const InputDecoration(
-                          labelText: 'Buscar por # ou endereço',
-                          prefixIcon: Icon(Icons.search),
-                        ),
-                        onChanged: (v) {
-                          setState(() {
-                            _simulateQuery = v;
-                          });
-                        },
-                      ),
-                      const SizedBox(height: 8),
-                      Wrap(
-                        spacing: 8,
-                        runSpacing: 8,
-                        children: [
-                          FilterChip(
-                            selected: _simulateStatusFilter == null,
-                            label: const Text('Todos'),
-                            onSelected: (_) {
-                              setState(() {
-                                _simulateStatusFilter = null;
-                              });
-                            },
-                          ),
-                          FilterChip(
-                            selected: _simulateStatusFilter == BitcoinPuzzleSolveStatus.unsolved,
-                            label: const Text('Unsolved'),
-                            onSelected: (_) {
-                              setState(() {
-                                _simulateStatusFilter = BitcoinPuzzleSolveStatus.unsolved;
-                              });
-                            },
-                          ),
-                          FilterChip(
-                            selected: _simulateStatusFilter == BitcoinPuzzleSolveStatus.solved,
-                            label: const Text('Solved'),
-                            onSelected: (_) {
-                              setState(() {
-                                _simulateStatusFilter = BitcoinPuzzleSolveStatus.solved;
-                              });
-                            },
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 12),
-                      Text(
-                        'Mostrando ${simFiltered.length} de ${kBitcoinPuzzlePresets.length}',
-                        style: Theme.of(context).textTheme.bodySmall,
-                      ),
-                      const SizedBox(height: 8),
-                      ListView.separated(
-                        shrinkWrap: true,
-                        physics: const NeverScrollableScrollPhysics(),
-                        itemCount: simFiltered.length,
-                        separatorBuilder: (_, __) => const Divider(height: 16),
-                        itemBuilder: (context, index) {
-                          final p = simFiltered[index];
-                          final isSelected = p.id == simSelectedPreset.id;
-                          final statusColor = _statusColor(context, p.status);
-
-                          return ListTile(
-                            contentPadding: EdgeInsets.zero,
-                            leading: CircleAvatar(
-                              backgroundColor:
-                                  isSelected ? Theme.of(context).colorScheme.primary : Theme.of(context).colorScheme.surfaceContainerHighest,
-                              foregroundColor: isSelected ? Theme.of(context).colorScheme.onPrimary : Theme.of(context).colorScheme.onSurface,
-                              child: Text(
-                                '${p.id}',
-                                style: const TextStyle(fontWeight: FontWeight.w800),
-                              ),
-                            ),
-                            title: Text('Puzzle #${p.id} • ${p.bits} bits'),
-                            subtitle: Text(
-                              p.address,
-                              style: const TextStyle(fontFamily: 'monospace', fontSize: 12),
-                            ),
-                            trailing: Column(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              crossAxisAlignment: CrossAxisAlignment.end,
-                              children: [
-                                Text(
-                                  '${p.rewardBtc} ₿',
-                                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                                        fontWeight: FontWeight.w800,
-                                      ),
-                                ),
-                                const SizedBox(height: 4),
-                                Container(
-                                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                                  decoration: BoxDecoration(
-                                    color: statusColor.withValues(alpha: 0.12),
-                                    borderRadius: BorderRadius.circular(999),
-                                    border: Border.all(color: statusColor.withValues(alpha: 0.35)),
-                                  ),
-                                  child: Text(
-                                    _statusLabel(p),
-                                    style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700),
-                                  ),
-                                ),
-                              ],
-                            ),
-                            onTap: _running
-                                ? null
-                                : () {
-                                    _applySimulationPreset(p.id);
-                                  },
-                          );
-                        },
-                      ),
-                    ],
-                  ],
-                ),
-              ),
-            ),
-          if (_mode == _PuzzleLabMode.treino)
-            Card(
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Configuração (Treino)',
+                      'Treino (Toy Puzzle)',
                       style: Theme.of(context).textTheme.titleLarge,
                     ),
                     const SizedBox(height: 12),
@@ -695,7 +944,6 @@ class _PuzzleLabScreenState extends State<PuzzleLabScreen> {
                         prefixIcon: Icon(Icons.flag_outlined),
                       ),
                       readOnly: true,
-                      enabled: true,
                     ),
                     const SizedBox(height: 12),
                     Row(
@@ -708,40 +956,26 @@ class _PuzzleLabScreenState extends State<PuzzleLabScreen> {
                                 'Keyspace: $_toyBitLength bits',
                                 style: Theme.of(context).textTheme.titleMedium,
                               ),
-                              const SizedBox(height: 4),
                               Text(
-                                'Total (aprox.): $totalKeys chaves (1..2^$_toyBitLength-1)',
+                                'Total: $totalKeys chaves',
                                 style: Theme.of(context).textTheme.bodySmall,
                               ),
                             ],
                           ),
                         ),
-                        const SizedBox(width: 12),
                         DropdownButton<int>(
                           value: _toyBitLength,
                           onChanged: _running
                               ? null
                               : (v) {
                                   if (v == null) return;
-                                  setState(() {
-                                    _toyBitLength = v;
-                                  });
+                                  setState(() => _toyBitLength = v);
                                 },
-                          items: const [
-                            8,
-                            12,
-                            16,
-                            20,
-                            24,
-                            28,
-                            32,
-                          ]
-                              .map(
-                                (e) => DropdownMenuItem<int>(
-                                  value: e,
-                                  child: Text('$e'),
-                                ),
-                              )
+                          items: [8, 12, 16, 20, 24, 28, 32]
+                              .map((e) => DropdownMenuItem<int>(
+                                    value: e,
+                                    child: Text('$e bits'),
+                                  ))
                               .toList(),
                         ),
                       ],
@@ -749,66 +983,18 @@ class _PuzzleLabScreenState extends State<PuzzleLabScreen> {
                     const SizedBox(height: 12),
                     Wrap(
                       spacing: 12,
-                      runSpacing: 6,
                       children: [
                         FilterChip(
-                          label: const Text('Legacy (não comprimido)'),
+                          label: const Text('Legacy'),
                           selected: _checkLegacy,
-                          onSelected: _running
-                              ? null
-                              : (v) {
-                                  setState(() {
-                                    _checkLegacy = v;
-                                  });
-                                },
+                          onSelected: _running ? null : (v) => setState(() => _checkLegacy = v),
                         ),
                         FilterChip(
                           label: const Text('Comprimido'),
                           selected: _checkCompressed,
-                          onSelected: _running
-                              ? null
-                              : (v) {
-                                  setState(() {
-                                    _checkCompressed = v;
-                                  });
-                                },
+                          onSelected: _running ? null : (v) => setState(() => _checkCompressed = v),
                         ),
                       ],
-                    ),
-                    const SizedBox(height: 12),
-                    Text(
-                      'Estratégia de busca',
-                      style: Theme.of(context).textTheme.titleMedium,
-                    ),
-                    const SizedBox(height: 8),
-                    SegmentedButton<PuzzleSearchStrategy>(
-                      segments: const [
-                        ButtonSegment(
-                          value: PuzzleSearchStrategy.sequential,
-                          label: Text('Sequencial'),
-                          icon: Icon(Icons.format_list_numbered),
-                        ),
-                        ButtonSegment(
-                          value: PuzzleSearchStrategy.random,
-                          label: Text('Aleatória'),
-                          icon: Icon(Icons.casino_outlined),
-                        ),
-                      ],
-                      selected: <PuzzleSearchStrategy>{_toyStrategy},
-                      onSelectionChanged: _running
-                          ? null
-                          : (selection) {
-                              setState(() {
-                                _toyStrategy = selection.first;
-                              });
-                            },
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      _toyStrategy == PuzzleSearchStrategy.random
-                          ? 'Aleatória: testa chaves em ordem pseudo-aleatória (educacional). Pode repetir tentativas e não garante achar em N passos.'
-                          : 'Sequencial: testa chaves de 1 até 2^bits-1 (educacional).',
-                      style: Theme.of(context).textTheme.bodySmall,
                     ),
                     const SizedBox(height: 12),
                     SizedBox(
@@ -816,30 +1002,38 @@ class _PuzzleLabScreenState extends State<PuzzleLabScreen> {
                       child: ElevatedButton.icon(
                         onPressed: _running ? _stop : _start,
                         icon: Icon(_running ? Icons.stop : Icons.play_arrow),
-                        label: Text(_running ? 'Parar' : 'Iniciar busca'),
+                        label: Text(_running ? 'Parar' : 'Iniciar Busca'),
                       ),
                     ),
-                    const SizedBox(height: 8),
-                    SizedBox(
-                      width: double.infinity,
-                      child: OutlinedButton.icon(
-                        onPressed: (!_running && _toyTargetAddress != null) ? _repeatTest : null,
-                        icon: const Icon(Icons.replay),
-                        label: const Text('Repetir teste (mesmo alvo)'),
-                      ),
-                    ),
-                    if (_message != null) ...[
-                      const SizedBox(height: 12),
-                      Text(
-                        _message!,
-                        style: Theme.of(context).textTheme.bodyMedium,
-                      ),
-                    ],
                   ],
                 ),
               ),
-            )
-          else
+            ),
+            if (_toyTargetAddress != null) ...[
+              const SizedBox(height: 16),
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text('Toy Puzzle Gerado', style: Theme.of(context).textTheme.titleLarge),
+                      const SizedBox(height: 12),
+                      CopyableTextField(
+                        controller: _toyTargetController,
+                        label: 'Endereço alvo',
+                        prefixIcon: Icons.flag,
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ] else ...[
+            // Modo Bitcoin Puzzle Real
+            const SizedBox(height: 16),
+            _buildRealPuzzleBruteForcePanel(),
+            const SizedBox(height: 16),
             Card(
               child: Padding(
                 padding: const EdgeInsets.all(16),
@@ -847,102 +1041,16 @@ class _PuzzleLabScreenState extends State<PuzzleLabScreen> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      'Bitcoin Puzzle (Real)',
+                      'Lista de Puzzles Bitcoin',
                       style: Theme.of(context).textTheme.titleLarge,
                     ),
-                    const SizedBox(height: 8),
-                    Text(
-                      'Lista atualizada de puzzles com status e recompensa.\n'
-                      'Este app não faz tentativa aleatória/brute force em puzzles reais.',
-                      style: Theme.of(context).textTheme.bodyMedium,
-                    ),
                     const SizedBox(height: 12),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: Text(
-                            'Selecionado: Puzzle #${selectedPreset.id} (${selectedPreset.bits} bits)',
-                            style: Theme.of(context).textTheme.titleMedium,
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        Chip(
-                          label: Text(_statusLabel(selectedPreset)),
-                          backgroundColor: _statusColor(context, selectedPreset.status).withValues(alpha: 0.12),
-                          side: BorderSide(color: _statusColor(context, selectedPreset.status).withValues(alpha: 0.35)),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      'Recompensa: ${selectedPreset.rewardBtc} ₿',
-                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                            fontWeight: FontWeight.w700,
-                          ),
-                    ),
-                    const SizedBox(height: 12),
-                    CopyableTextField(
-                      controller: _puzzleAddressController,
-                      label: 'Endereço do puzzle',
-                      prefixIcon: Icons.flag,
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      'Range (private key): [2^${puzzleBits - 1}, 2^$puzzleBits - 1]\n'
-                      'Início: $puzzleStartHex\n'
-                      'Fim:    $puzzleEndHex',
-                      style: const TextStyle(fontFamily: 'monospace', fontSize: 12),
-                    ),
-                    const SizedBox(height: 16),
-                    Text(
-                      'Lista',
-                      style: Theme.of(context).textTheme.titleMedium,
-                    ),
-                    const SizedBox(height: 8),
                     TextField(
                       decoration: const InputDecoration(
                         labelText: 'Buscar por # ou endereço',
                         prefixIcon: Icon(Icons.search),
                       ),
-                      onChanged: (v) {
-                        setState(() {
-                          _puzzleQuery = v;
-                        });
-                      },
-                    ),
-                    const SizedBox(height: 8),
-                    Wrap(
-                      spacing: 8,
-                      runSpacing: 8,
-                      children: [
-                        FilterChip(
-                          selected: _statusFilter == null,
-                          label: const Text('Todos'),
-                          onSelected: (_) {
-                            setState(() {
-                              _statusFilter = null;
-                            });
-                          },
-                        ),
-                        FilterChip(
-                          selected: _statusFilter == BitcoinPuzzleSolveStatus.unsolved,
-                          label: const Text('Unsolved'),
-                          onSelected: (_) {
-                            setState(() {
-                              _statusFilter = BitcoinPuzzleSolveStatus.unsolved;
-                            });
-                          },
-                        ),
-                        FilterChip(
-                          selected: _statusFilter == BitcoinPuzzleSolveStatus.solved,
-                          label: const Text('Solved'),
-                          onSelected: (_) {
-                            setState(() {
-                              _statusFilter = BitcoinPuzzleSolveStatus.solved;
-                            });
-                          },
-                        ),
-                      ],
+                      onChanged: (v) => setState(() => _puzzleQuery = v),
                     ),
                     const SizedBox(height: 12),
                     Text(
@@ -957,7 +1065,7 @@ class _PuzzleLabScreenState extends State<PuzzleLabScreen> {
                       separatorBuilder: (_, __) => const Divider(height: 16),
                       itemBuilder: (context, index) {
                         final p = filtered[index];
-                        final isSelected = p.id == selectedPreset.id;
+                        final isSelected = p.id == _selectedPuzzleId;
                         final statusColor = _statusColor(context, p.status);
 
                         return ListTile(
@@ -965,128 +1073,40 @@ class _PuzzleLabScreenState extends State<PuzzleLabScreen> {
                           leading: CircleAvatar(
                             backgroundColor:
                                 isSelected ? Theme.of(context).colorScheme.primary : Theme.of(context).colorScheme.surfaceContainerHighest,
-                            foregroundColor: isSelected ? Theme.of(context).colorScheme.onPrimary : Theme.of(context).colorScheme.onSurface,
-                            child: Text(
-                              '${p.id}',
-                              style: const TextStyle(fontWeight: FontWeight.w800),
-                            ),
+                            child: Text('${p.id}', style: const TextStyle(fontWeight: FontWeight.w800)),
                           ),
                           title: Text('Puzzle #${p.id} • ${p.bits} bits'),
-                          subtitle: Text(
-                            p.address,
-                            style: const TextStyle(fontFamily: 'monospace', fontSize: 12),
-                          ),
+                          subtitle: Text(p.address, style: const TextStyle(fontFamily: 'monospace', fontSize: 12)),
                           trailing: Column(
                             mainAxisAlignment: MainAxisAlignment.center,
-                            crossAxisAlignment: CrossAxisAlignment.end,
                             children: [
-                              Text(
-                                '${p.rewardBtc} ₿',
-                                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                                      fontWeight: FontWeight.w800,
-                                    ),
-                              ),
+                              Text('${p.rewardBtc} ₿',
+                                  style: TextStyle(
+                                    fontWeight: FontWeight.w800,
+                                    color: Theme.of(context).colorScheme.primary,
+                                  )),
                               const SizedBox(height: 4),
                               Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 2),
                                 decoration: BoxDecoration(
-                                  color: statusColor.withValues(alpha: 0.12),
+                                  color: statusColor.withOpacity(0.12),
                                   borderRadius: BorderRadius.circular(999),
-                                  border: Border.all(color: statusColor.withValues(alpha: 0.35)),
+                                  border: Border.all(color: statusColor.withOpacity(0.35)),
                                 ),
-                                child: Text(
-                                  _statusLabel(p),
-                                  style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700),
-                                ),
+                                child: Text(_statusLabel(p), style: const TextStyle(fontSize: 12)),
                               ),
                             ],
                           ),
-                          onTap: () {
-                            _applyPuzzlePreset(p.id);
-                          },
+                          onTap: () => _applyPuzzlePreset(p.id),
                         );
                       },
                     ),
-                    const SizedBox(height: 16),
-                    Text(
-                      'Verificar chave (opcional)',
-                      style: Theme.of(context).textTheme.titleMedium,
-                    ),
-                    const SizedBox(height: 8),
-                    TextField(
-                      controller: _candidatePrivKeyController,
-                      decoration: const InputDecoration(
-                        labelText: 'PrivateKey (HEX) para verificar',
-                        prefixIcon: Icon(Icons.key),
-                        helperText: 'Cole uma chave e veja se gera o endereço do puzzle.',
-                      ),
-                      minLines: 1,
-                      maxLines: 2,
-                    ),
-                    const SizedBox(height: 12),
-                    SizedBox(
-                      width: double.infinity,
-                      child: ElevatedButton.icon(
-                        onPressed: _verifyCandidate,
-                        icon: const Icon(Icons.check_circle_outline),
-                        label: const Text('Verificar'),
-                      ),
-                    ),
-                    if (_candidateResult != null) ...[
-                      const SizedBox(height: 12),
-                      SelectableText(
-                        _candidateResult!,
-                        style: Theme.of(context).textTheme.bodyMedium,
-                      ),
-                    ],
                   ],
                 ),
               ),
             ),
-          const SizedBox(height: 16),
-          if (_mode == _PuzzleLabMode.treino && _toyTargetAddress != null)
-            Card(
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Toy Puzzle (gerado)',
-                      style: Theme.of(context).textTheme.titleLarge,
-                    ),
-                    const SizedBox(height: 12),
-                    CopyableTextField(
-                      controller: _toyTargetController,
-                      label: 'Endereço alvo (comprimido)',
-                      prefixIcon: Icons.flag,
-                    ),
-                    const SizedBox(height: 12),
-                    SwitchListTile.adaptive(
-                      value: _showToySolution,
-                      onChanged: _running
-                          ? null
-                          : (v) {
-                              setState(() {
-                                _showToySolution = v;
-                              });
-                            },
-                      contentPadding: EdgeInsets.zero,
-                      title: const Text('Mostrar solução (private key)'),
-                    ),
-                    if (_showToySolution && _toyPrivateKeyHex != null) ...[
-                      const SizedBox(height: 8),
-                      CopyableTextField(
-                        controller: _toyPrivKeyController,
-                        label: 'PrivateKey (HEX)',
-                        prefixIcon: Icons.lock_outline,
-                      ),
-                    ],
-                  ],
-                ),
-              ),
-            ),
-          if (_mode == _PuzzleLabMode.treino && (_progress != null || _found != null)) ...[
+          ],
+          if (_found != null) ...[
             const SizedBox(height: 16),
             Card(
               child: Padding(
@@ -1095,66 +1115,46 @@ class _PuzzleLabScreenState extends State<PuzzleLabScreen> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      'Progresso',
-                      style: Theme.of(context).textTheme.titleLarge,
+                      '🎉 Chave Encontrada!',
+                      style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                            color: Theme.of(context).colorScheme.primary,
+                          ),
                     ),
                     const SizedBox(height: 12),
-                    if (_found != null) ...[
-                      Text(
-                        'Encontrado após ${_found!.tested} tentativas!',
-                        style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                              color: Theme.of(context).colorScheme.primary,
-                            ),
-                      ),
-                      const SizedBox(height: 12),
-                      CopyableTextField(
-                        controller: _foundPrivKeyController,
-                        label: 'PrivateKey (HEX)',
-                        prefixIcon: Icons.lock_open,
-                      ),
-                      const SizedBox(height: 12),
-                      CopyableTextField(
-                        controller: _foundCompressedController,
-                        label: 'Endereço (Comprimido)',
-                        prefixIcon: Icons.account_balance_wallet,
-                      ),
-                      const SizedBox(height: 12),
-                      CopyableTextField(
-                        controller: _foundLegacyController,
-                        label: 'Endereço (Legacy)',
-                        prefixIcon: Icons.account_balance_wallet_outlined,
-                      ),
-                      const SizedBox(height: 12),
-                      SizedBox(
-                        width: double.infinity,
-                        child: ElevatedButton.icon(
-                          onPressed: _openFoundDetails,
-                          icon: const Icon(Icons.account_balance_wallet),
-                          label: const Text('Abrir detalhes da carteira'),
+                    CopyableTextField(
+                      controller: _foundPrivKeyController,
+                      label: 'PrivateKey (HEX)',
+                      prefixIcon: Icons.lock_open,
+                    ),
+                    const SizedBox(height: 12),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: CopyableTextField(
+                            controller: _foundCompressedController,
+                            label: 'Comprimido',
+                            prefixIcon: Icons.account_balance_wallet,
+                          ),
                         ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: CopyableTextField(
+                            controller: _foundLegacyController,
+                            label: 'Legacy',
+                            prefixIcon: Icons.account_balance_wallet_outlined,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton.icon(
+                        onPressed: _openFoundDetails,
+                        icon: const Icon(Icons.info_outline),
+                        label: const Text('Ver Detalhes da Carteira'),
                       ),
-                    ] else ...[
-                      Text(
-                        'Testadas: ${_progress?.tested ?? 0}',
-                        style: Theme.of(context).textTheme.bodyLarge,
-                      ),
-                      const SizedBox(height: 6),
-                      Text(
-                        'Velocidade: ${(_progress?.keysPerSecond ?? 0).toStringAsFixed(0)} keys/s',
-                        style: Theme.of(context).textTheme.bodyMedium,
-                      ),
-                      const SizedBox(height: 12),
-                      CopyableTextField(
-                        controller: _currentKeyController,
-                        label: 'Chave atual (HEX)',
-                        prefixIcon: Icons.timelapse,
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
-                        'Dica: aumente bits aos poucos (ex.: 16, 20, 24).',
-                        style: Theme.of(context).textTheme.bodySmall,
-                      ),
-                    ],
+                    ),
                   ],
                 ),
               ),
