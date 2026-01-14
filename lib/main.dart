@@ -3,12 +3,14 @@ import 'dart:math' as math;
 import 'package:btcaddress/btc_tool.dart';
 import 'package:btcaddress/models/address_model.dart';
 import 'package:btcaddress/screens/address_detail_screen.dart';
+import 'package:btcaddress/screens/balance_checker_screen.dart';
 import 'package:btcaddress/screens/history_screen.dart';
+import 'package:btcaddress/screens/pixel_key_screen.dart';
+import 'package:btcaddress/services/blockchain_service.dart';
 import 'package:btcaddress/services/storage_service.dart';
 import 'package:btcaddress/theme/app_theme.dart';
 import 'package:btcaddress/widgets/copyable_textfield.dart';
 import 'package:btcaddress/widgets/qr_code_dialog.dart';
-import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -205,11 +207,7 @@ class _MyHomePageState extends State<MyHomePage> with SingleTickerProviderStateM
 
   Future<String> getBalance(String address) async {
     try {
-      final url = 'https://blockchain.info/q/addressbalance/$address';
-      final response = await Dio().get(url);
-      final balance = response.data;
-
-      return '$balance BTC';
+      return await BlockchainService().getBalanceBtc(address);
     } catch (e) {
       return 'Erro ao consultar';
     }
@@ -242,6 +240,30 @@ class _MyHomePageState extends State<MyHomePage> with SingleTickerProviderStateM
             ],
           ),
           actions: [
+            IconButton(
+              icon: Icon(Icons.account_balance_wallet_outlined),
+              onPressed: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => const BalanceCheckerScreen(),
+                  ),
+                );
+              },
+              tooltip: 'Consultar saldo',
+            ),
+            IconButton(
+              icon: Icon(Icons.grid_4x4),
+              onPressed: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => const PixelKeyScreen(),
+                  ),
+                );
+              },
+              tooltip: 'PixelKey',
+            ),
             IconButton(
               icon: Icon(Icons.history),
               onPressed: () {
