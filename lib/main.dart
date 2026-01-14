@@ -6,6 +6,7 @@ import 'package:btcaddress/screens/address_detail_screen.dart';
 import 'package:btcaddress/screens/balance_checker_screen.dart';
 import 'package:btcaddress/screens/history_screen.dart';
 import 'package:btcaddress/screens/pixel_key_screen.dart';
+import 'package:btcaddress/screens/puzzle_lab_screen.dart';
 import 'package:btcaddress/services/blockchain_service.dart';
 import 'package:btcaddress/services/storage_service.dart';
 import 'package:btcaddress/theme/app_theme.dart';
@@ -251,6 +252,18 @@ class _MyHomePageState extends State<MyHomePage> with SingleTickerProviderStateM
                 );
               },
               tooltip: 'Consultar saldo',
+            ),
+            IconButton(
+              icon: const Icon(Icons.emoji_objects_outlined),
+              onPressed: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => const PuzzleLabScreen(),
+                  ),
+                );
+              },
+              tooltip: 'Puzzle Lab',
             ),
             IconButton(
               icon: Icon(Icons.grid_4x4),
