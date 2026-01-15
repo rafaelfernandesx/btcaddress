@@ -245,6 +245,57 @@ class BitcoinTOOL {
     return _segwitEncode(chosenHrp, 0, program);
   }
 
+  /// Native SegWit v1 P2TR (Taproot) address (Bech32m).
+  ///
+  /// This implements the BIP341 key-path output key tweak with no script tree:
+  /// Q = P + int(taggedHash("TapTweak", x(P))) * G.
+  ///
+  /// Returns the address for mainnet/testnet based on `networkPrefix`.
+  String getTaprootAddress({String? hrp}) {
+    if (ecdsa.k == null) {
+      throw Exception('No Private Key was defined');
+    }
+
+    final chosenHrp = (hrp ?? getBech32Hrp()).toLowerCase();
+
+    // Internal public key P (x-only).
+    final pts = ecdsa.getPubKeyPoints();
+    final pX = BigInt.parse(pts['x']!, radix: 16);
+    final pY = BigInt.parse(pts['y']!, radix: 16);
+
+    // Use the even-Y representative for x-only pubkeys.
+    final Map<String, BigInt> pPoint = {
+      'x': pX,
+      'y': (pY.isOdd ? (ecdsa.p - pY) : pY),
+    };
+
+    final xOnly = _bigIntTo32Bytes(pPoint['x']!);
+    final tweakBytes = _taggedHash('TapTweak', xOnly);
+    final tweak = _bytesToBigInt(tweakBytes) % ecdsa.n;
+
+    final Map<String, BigInt> qPoint;
+    if (tweak == BigInt.zero) {
+      qPoint = pPoint;
+    } else {
+      final tweakPoint = ecdsa.mulPoint(tweak, ecdsa.G);
+      qPoint = ecdsa.addPoints(pPoint, tweakPoint);
+    }
+
+    final program = _bigIntTo32Bytes(qPoint['x']!);
+    return encodeSegwitAddress(
+      witnessVersion: 1,
+      program: Uint8List.fromList(program),
+      hrp: chosenHrp,
+    );
+  }
+
+  /// Advanced utility: encodes a SegWit address for the provided witness version/program.
+  /// Uses Bech32 for v0, Bech32m for v1+ (BIP350).
+  String encodeSegwitAddress({required int witnessVersion, required Uint8List program, String? hrp}) {
+    final chosenHrp = (hrp ?? getBech32Hrp()).toLowerCase();
+    return _segwitEncode(chosenHrp, witnessVersion, program);
+  }
+
   getAddressh160([bool compressed = false]) {
     String address = getPubKey(compressed: compressed);
 
@@ -459,14 +510,17 @@ List<int> _bech32HrpExpand(String hrp) {
   return ret;
 }
 
-List<int> _bech32CreateChecksum(String hrp, List<int> data) {
+const int _bech32Const = 1;
+const int _bech32mConst = 0x2bc830a3;
+
+List<int> _bech32CreateChecksum(String hrp, List<int> data, int constant) {
   final values = <int>[..._bech32HrpExpand(hrp), ...data];
-  final polymod = _bech32Polymod([...values, 0, 0, 0, 0, 0, 0]) ^ 1;
+  final polymod = _bech32Polymod([...values, 0, 0, 0, 0, 0, 0]) ^ constant;
   return List<int>.generate(6, (i) => (polymod >> (5 * (5 - i))) & 31);
 }
 
-String _bech32Encode(String hrp, List<int> data) {
-  final checksum = _bech32CreateChecksum(hrp, data);
+String _bech32Encode(String hrp, List<int> data, int constant) {
+  final checksum = _bech32CreateChecksum(hrp, data, constant);
   final combined = <int>[...data, ...checksum];
   final sb = StringBuffer();
   sb.write(hrp);
@@ -520,7 +574,32 @@ String _segwitEncode(String hrp, int witnessVersion, List<int> program) {
   }
 
   final data = <int>[witnessVersion, ..._convertBits(program, 8, 5, pad: true)];
-  return _bech32Encode(hrp.toLowerCase(), data);
+  final constant = witnessVersion == 0 ? _bech32Const : _bech32mConst;
+  return _bech32Encode(hrp.toLowerCase(), data, constant);
+}
+
+List<int> _taggedHash(String tag, List<int> msg) {
+  final tagHash = sha256.convert(tag.codeUnits).bytes;
+  final preimage = <int>[...tagHash, ...tagHash, ...msg];
+  return sha256.convert(preimage).bytes;
+}
+
+BigInt _bytesToBigInt(List<int> bytes) {
+  BigInt result = BigInt.zero;
+  for (final b in bytes) {
+    result = (result << 8) | BigInt.from(b);
+  }
+  return result;
+}
+
+List<int> _bigIntTo32Bytes(BigInt v) {
+  final out = List<int>.filled(32, 0);
+  var x = v;
+  for (int i = 31; i >= 0; i--) {
+    out[i] = (x & BigInt.from(0xff)).toInt();
+    x = x >> 8;
+  }
+  return out;
 }
 
 class Base58 {

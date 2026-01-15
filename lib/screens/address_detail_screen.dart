@@ -21,6 +21,16 @@ class AddressDetailScreen extends StatelessWidget {
       body: ListView(
         padding: EdgeInsets.all(16),
         children: [
+          if (address.addressTaproot.isNotEmpty) ...[
+            _buildInfoCard(
+              context,
+              'Endereço Taproot (P2TR)',
+              address.addressTaproot,
+              Icons.auto_awesome,
+              showQR: true,
+            ),
+            SizedBox(height: 12),
+          ],
           if (address.addressBech32.isNotEmpty) ...[
             _buildInfoCard(
               context,

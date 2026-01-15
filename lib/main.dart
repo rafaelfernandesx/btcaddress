@@ -89,6 +89,7 @@ class _MyHomePageState extends State<MyHomePage> with SingleTickerProviderStateM
   final p2pkhController = TextEditingController();
   final p2pkhcController = TextEditingController();
   final bech32Controller = TextEditingController();
+  final taprootController = TextEditingController();
   final ripemdcController = TextEditingController();
   final ripemdController = TextEditingController();
   final pubKeyHexController = TextEditingController();
@@ -122,6 +123,7 @@ class _MyHomePageState extends State<MyHomePage> with SingleTickerProviderStateM
     p2pkhController.dispose();
     p2pkhcController.dispose();
     bech32Controller.dispose();
+    taprootController.dispose();
     ripemdcController.dispose();
     ripemdController.dispose();
     pubKeyHexController.dispose();
@@ -144,6 +146,7 @@ class _MyHomePageState extends State<MyHomePage> with SingleTickerProviderStateM
       p2pkhController.clear();
       p2pkhcController.clear();
       bech32Controller.clear();
+      taprootController.clear();
       ripemdController.clear();
       ripemdcController.clear();
       pubKeyHexController.clear();
@@ -159,6 +162,7 @@ class _MyHomePageState extends State<MyHomePage> with SingleTickerProviderStateM
       p2pkhController.text = btc.getAddress();
       p2pkhcController.text = btc.getAddress(true);
       bech32Controller.text = btc.getBech32Address();
+      taprootController.text = btc.getTaprootAddress();
       ripemdController.text = btc.getRipeMd160Address();
       ripemdcController.text = btc.getRipeMd160Address(true);
       pubKeyHexController.text = btc.getPubKey();
@@ -179,6 +183,7 @@ class _MyHomePageState extends State<MyHomePage> with SingleTickerProviderStateM
       addressCompressed: p2pkhcController.text,
       addressUncompressed: p2pkhController.text,
       addressBech32: bech32Controller.text,
+      addressTaproot: taprootController.text,
       privateKeyHex: privKeyHexController.text,
       privateKeyWif: privKeyWifController.text,
       privateKeyWifCompressed: privKeyWifcController.text,
@@ -505,6 +510,75 @@ class _MyHomePageState extends State<MyHomePage> with SingleTickerProviderStateM
                       opacity: _animationController,
                       child: Column(
                         children: [
+                          // Taproot Address Card
+                          Card(
+                            color: Colors.deepPurple.withValues(alpha: 0.08),
+                            child: Padding(
+                              padding: const EdgeInsets.all(16.0),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Row(
+                                    children: [
+                                      const Icon(Icons.auto_awesome, color: Colors.deepPurple),
+                                      const SizedBox(width: 8),
+                                      Text(
+                                        'Endereço Taproot (SegWit v1 / P2TR)',
+                                        style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                                              fontWeight: FontWeight.bold,
+                                            ),
+                                      ),
+                                    ],
+                                  ),
+                                  const SizedBox(height: 12),
+                                  CopyableTextField(
+                                    controller: taprootController,
+                                    label: 'Endereço',
+                                    prefixIcon: Icons.auto_awesome,
+                                    onTap: () async {
+                                      setState(() => _isLoading = true);
+                                      final balance = await getBalance(taprootController.text);
+                                      if (!mounted) return;
+                                      setState(() => _isLoading = false);
+                                      if (!context.mounted) return;
+                                      showDialog(
+                                        context: context,
+                                        builder: (ctx) => AlertDialog(
+                                          title: const Text('Saldo'),
+                                          content: Text(balance),
+                                          actions: [
+                                            TextButton(
+                                              onPressed: () => Navigator.pop(ctx),
+                                              child: const Text('OK'),
+                                            ),
+                                          ],
+                                        ),
+                                      );
+                                    },
+                                  ),
+                                  const SizedBox(height: 12),
+                                  SizedBox(
+                                    width: double.infinity,
+                                    child: OutlinedButton.icon(
+                                      onPressed: () {
+                                        showDialog(
+                                          context: context,
+                                          builder: (context) => QRCodeDialog(
+                                            data: taprootController.text,
+                                            title: 'Endereço Taproot',
+                                          ),
+                                        );
+                                      },
+                                      icon: const Icon(Icons.qr_code),
+                                      label: const Text('Mostrar QR Code'),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 12),
+
                           // Bech32 Address Card
                           Card(
                             color: Colors.teal.withValues(alpha: 0.08),

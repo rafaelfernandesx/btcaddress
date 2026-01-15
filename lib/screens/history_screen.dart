@@ -96,7 +96,9 @@ class HistoryScreen extends StatelessWidget {
                       ),
                     ),
                     title: Text(
-                      address.addressBech32.isNotEmpty ? address.addressBech32 : address.addressCompressed,
+                      address.addressTaproot.isNotEmpty
+                          ? address.addressTaproot
+                          : (address.addressBech32.isNotEmpty ? address.addressBech32 : address.addressCompressed),
                       style: TextStyle(
                         fontFamily: 'monospace',
                         fontSize: 12,

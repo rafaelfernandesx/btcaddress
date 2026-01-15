@@ -3,6 +3,7 @@ class AddressModel {
   final String addressCompressed;
   final String addressUncompressed;
   final String addressBech32;
+  final String addressTaproot;
   final String privateKeyHex;
   final String privateKeyWif;
   final String privateKeyWifCompressed;
@@ -15,6 +16,7 @@ class AddressModel {
     required this.addressCompressed,
     required this.addressUncompressed,
     this.addressBech32 = '',
+    this.addressTaproot = '',
     required this.privateKeyHex,
     required this.privateKeyWif,
     required this.privateKeyWifCompressed,
@@ -29,6 +31,7 @@ class AddressModel {
       'addressCompressed': addressCompressed,
       'addressUncompressed': addressUncompressed,
       'addressBech32': addressBech32,
+      'addressTaproot': addressTaproot,
       'privateKeyHex': privateKeyHex,
       'privateKeyWif': privateKeyWif,
       'privateKeyWifCompressed': privateKeyWifCompressed,
@@ -44,6 +47,7 @@ class AddressModel {
       addressCompressed: json['addressCompressed'] ?? '',
       addressUncompressed: json['addressUncompressed'] ?? '',
       addressBech32: json['addressBech32'] ?? '',
+      addressTaproot: json['addressTaproot'] ?? '',
       privateKeyHex: json['privateKeyHex'] ?? '',
       privateKeyWif: json['privateKeyWif'] ?? '',
       privateKeyWifCompressed: json['privateKeyWifCompressed'] ?? '',

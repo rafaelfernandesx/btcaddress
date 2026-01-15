@@ -90,6 +90,7 @@ class _PixelKeyScreenState extends State<PixelKeyScreen> {
     final model = AddressModel(
       seed: 'pixelkey-bits:${_selectedBits.length}bits',
       addressBech32: _btc.getBech32Address(),
+      addressTaproot: _btc.getTaprootAddress(),
       addressCompressed: _btc.getAddress(true),
       addressUncompressed: _btc.getAddress(false),
       privateKeyHex: _btc.getPrivateKey(),
