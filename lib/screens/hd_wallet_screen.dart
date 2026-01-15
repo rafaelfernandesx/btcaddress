@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:btcaddress/bitcoin/hd_wallet.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -27,6 +29,7 @@ class _HdWalletScreenState extends State<HdWalletScreen> {
 
   String? _error;
   List<HdDerivedAddress> _derived = [];
+  HdWatchOnlyExport? _watchOnly;
 
   @override
   void dispose() {
@@ -51,6 +54,7 @@ class _HdWalletScreenState extends State<HdWalletScreen> {
       _mnemonicController.text = HdWalletDeriver.generateMnemonic(strength: 128);
       _error = null;
       _derived = [];
+      _watchOnly = null;
     });
   }
 
@@ -59,6 +63,7 @@ class _HdWalletScreenState extends State<HdWalletScreen> {
       _mnemonicController.text = HdWalletDeriver.generateMnemonic(strength: 256);
       _error = null;
       _derived = [];
+      _watchOnly = null;
     });
   }
 
@@ -70,7 +75,46 @@ class _HdWalletScreenState extends State<HdWalletScreen> {
       _mnemonicController.text = text;
       _error = null;
       _derived = [];
+      _watchOnly = null;
     });
+  }
+
+  Future<void> _buildWatchOnly() async {
+    final mnemonic = _mnemonicController.text;
+    final passphrase = _passphraseController.text;
+
+    setState(() {
+      _loading = true;
+      _error = null;
+      _watchOnly = null;
+    });
+
+    try {
+      final account = _parseInt(_accountController, fallback: 0, min: 0, max: 9999);
+      final export = HdWalletDeriver.deriveWatchOnly(
+        mnemonic: mnemonic,
+        passphrase: passphrase,
+        scheme: _scheme,
+        testnet: _testnet,
+        account: account,
+      );
+
+      if (!mounted) return;
+      setState(() {
+        _watchOnly = export;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _error = e.toString();
+      });
+    } finally {
+      if (mounted) {
+        setState(() {
+          _loading = false;
+        });
+      }
+    }
   }
 
   Future<void> _derive() async {
@@ -81,6 +125,7 @@ class _HdWalletScreenState extends State<HdWalletScreen> {
       _loading = true;
       _error = null;
       _derived = [];
+      _watchOnly = null;
     });
 
     try {
@@ -102,6 +147,19 @@ class _HdWalletScreenState extends State<HdWalletScreen> {
       if (!mounted) return;
       setState(() {
         _derived = list;
+      });
+
+      // Atualiza watch-only junto para facilitar fluxo.
+      final export = HdWalletDeriver.deriveWatchOnly(
+        mnemonic: mnemonic,
+        passphrase: passphrase,
+        scheme: _scheme,
+        testnet: _testnet,
+        account: account,
+      );
+      if (!mounted) return;
+      setState(() {
+        _watchOnly = export;
       });
     } catch (e) {
       if (!mounted) return;
@@ -130,6 +188,14 @@ class _HdWalletScreenState extends State<HdWalletScreen> {
       HdDerivationScheme.bip84 => a.addressBech32,
       HdDerivationScheme.bip86 => a.addressTaproot,
       HdDerivationScheme.bip44 => a.addressLegacy,
+    };
+  }
+
+  String _watchOnlyTitle() {
+    return switch (_scheme) {
+      HdDerivationScheme.bip84 => 'zpub/vpub (watch-only)',
+      HdDerivationScheme.bip86 => 'xpub/tpub (watch-only)',
+      HdDerivationScheme.bip44 => 'xpub/tpub (watch-only)',
     };
   }
 
@@ -197,6 +263,96 @@ class _HdWalletScreenState extends State<HdWalletScreen> {
                     title: const Text('Mostrar segredos (chaves privadas) na tela'),
                     subtitle: const Text('Recomendado desativado. Cuidado ao gravar/printar tela.'),
                   ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 16),
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    _watchOnlyTitle(),
+                    style: Theme.of(context).textTheme.titleLarge,
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    'Exporta uma chave pública estendida para acompanhamento (sem chaves privadas).',
+                    style: Theme.of(context).textTheme.bodyMedium,
+                  ),
+                  const SizedBox(height: 12),
+                  SizedBox(
+                    width: double.infinity,
+                    child: OutlinedButton.icon(
+                      onPressed: _loading ? null : _buildWatchOnly,
+                      icon: const Icon(Icons.remove_red_eye_outlined),
+                      label: const Text('Gerar watch-only'),
+                    ),
+                  ),
+                  if (_watchOnly != null) ...[
+                    const SizedBox(height: 12),
+                    Text(
+                      _watchOnly!.accountPath,
+                      style: Theme.of(context).textTheme.labelMedium?.copyWith(fontFamily: 'monospace'),
+                    ),
+                    const SizedBox(height: 8),
+                    SelectableText(
+                      _watchOnly!.extendedPublicKey,
+                      style: const TextStyle(fontFamily: 'monospace', fontSize: 13),
+                    ),
+                    const SizedBox(height: 8),
+                    Row(
+                      children: [
+                        IconButton(
+                          tooltip: 'Copiar chave',
+                          icon: const Icon(Icons.copy),
+                          onPressed: () async {
+                            await Clipboard.setData(
+                              ClipboardData(text: _watchOnly!.extendedPublicKey),
+                            );
+                            if (!context.mounted) return;
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text('Copiado!'),
+                                behavior: SnackBarBehavior.floating,
+                                duration: Duration(seconds: 2),
+                              ),
+                            );
+                          },
+                        ),
+                        IconButton(
+                          tooltip: 'QR da chave',
+                          icon: const Icon(Icons.qr_code_2_outlined),
+                          onPressed: () {
+                            showDialog(
+                              context: context,
+                              builder: (_) => QRCodeDialog(
+                                data: _watchOnly!.extendedPublicKey,
+                                title: 'Watch-only',
+                              ),
+                            );
+                          },
+                        ),
+                        IconButton(
+                          tooltip: 'QR do JSON (watch-only)',
+                          icon: const Icon(Icons.qr_code_outlined),
+                          onPressed: () {
+                            final payload = jsonEncode(_watchOnly!.toJson());
+                            showDialog(
+                              context: context,
+                              builder: (_) => QRCodeDialog(
+                                data: payload,
+                                title: 'Export watch-only (JSON)',
+                              ),
+                            );
+                          },
+                        ),
+                      ],
+                    ),
+                  ],
                 ],
               ),
             ),
