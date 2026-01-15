@@ -234,6 +234,63 @@ class BitcoinTOOL {
     }
   }
 
+  /// Native SegWit v0 P2WPKH (Bech32) address from a provided public key hex.
+  ///
+  /// For standardness and interoperability, pass a compressed pubkey hex (33 bytes).
+  String getBech32AddressFromPublicKeyHex(String publicKeyHex, {String? hrp}) {
+    final chosenHrp = (hrp ?? getBech32Hrp()).toLowerCase();
+    final pubKeyHashHex = hash160(publicKeyHex); // 20 bytes
+    final program = HEX.decode(pubKeyHashHex);
+    return _segwitEncode(chosenHrp, 0, program);
+  }
+
+  /// Converts a compressed secp256k1 public key (02/03 + 32-byte X) to
+  /// an uncompressed one (04 + 32-byte X + 32-byte Y).
+  String uncompressPublicKeyHex(String compressedPublicKeyHex) {
+    final point = _decompressPointFromCompressedPubKeyHex(compressedPublicKeyHex);
+    final xHex = point['x']!.toRadixString(16).padLeft(64, '0');
+    final yHex = point['y']!.toRadixString(16).padLeft(64, '0');
+    return '04$xHex$yHex';
+  }
+
+  /// Native SegWit v1 P2TR (Taproot) address (Bech32m) from a provided
+  /// compressed public key hex (internal key).
+  ///
+  /// This implements the BIP341 key-path output key tweak with no script tree:
+  /// Q = P + int(taggedHash("TapTweak", x(P))) * G.
+  String getTaprootAddressFromCompressedPublicKeyHex(String compressedPublicKeyHex, {String? hrp}) {
+    final chosenHrp = (hrp ?? getBech32Hrp()).toLowerCase();
+
+    final decoded = _decompressPointFromCompressedPubKeyHex(compressedPublicKeyHex);
+    final pX = decoded['x']!;
+    final pY = decoded['y']!;
+
+    // Use the even-Y representative for x-only pubkeys.
+    final Map<String, BigInt> pPoint = {
+      'x': pX,
+      'y': (pY.isOdd ? (ecdsa.p - pY) : pY),
+    };
+
+    final xOnly = _bigIntTo32Bytes(pPoint['x']!);
+    final tweakBytes = _taggedHash('TapTweak', xOnly);
+    final tweak = _bytesToBigInt(tweakBytes) % ecdsa.n;
+
+    final Map<String, BigInt> qPoint;
+    if (tweak == BigInt.zero) {
+      qPoint = pPoint;
+    } else {
+      final tweakPoint = ecdsa.mulPoint(tweak, ecdsa.G);
+      qPoint = ecdsa.addPoints(pPoint, tweakPoint);
+    }
+
+    final program = _bigIntTo32Bytes(qPoint['x']!);
+    return encodeSegwitAddress(
+      witnessVersion: 1,
+      program: Uint8List.fromList(program),
+      hrp: chosenHrp,
+    );
+  }
+
   /// Native SegWit v0 P2WPKH (Bech32) address from a public key.
   ///
   /// For standardness and interoperability, this uses compressed pubkeys by default.
@@ -287,6 +344,50 @@ class BitcoinTOOL {
       program: Uint8List.fromList(program),
       hrp: chosenHrp,
     );
+  }
+
+  Map<String, BigInt> _decompressPointFromCompressedPubKeyHex(String compressedPublicKeyHex) {
+    final normalized = compressedPublicKeyHex.toLowerCase().replaceAll(RegExp(r'[^0-9a-f]'), '');
+    if (normalized.length != 66) {
+      throw const FormatException('Public key comprimida inválida (tamanho).');
+    }
+
+    final prefix = normalized.substring(0, 2);
+    if (prefix != '02' && prefix != '03') {
+      throw const FormatException('Public key comprimida inválida (prefixo).');
+    }
+
+    final x = BigInt.parse(normalized.substring(2), radix: 16);
+    final p = ecdsa.p;
+
+    // y^2 = x^3 + 7 (mod p)
+    final y2 = (x.modPow(BigInt.from(3), p) + BigInt.from(7)) % p;
+    var y = _modSqrtSecp256k1(y2);
+
+    final isOdd = y.isOdd;
+    final shouldBeOdd = prefix == '03';
+    if (isOdd != shouldBeOdd) {
+      y = p - y;
+    }
+
+    final xHex = x.toRadixString(16);
+    final yHex = y.toRadixString(16);
+    if (!ecdsa.validatePoint(xHex, yHex)) {
+      throw const FormatException('Public key inválida (ponto fora da curva).');
+    }
+
+    return {'x': x, 'y': y};
+  }
+
+  BigInt _modSqrtSecp256k1(BigInt a) {
+    // secp256k1 prime p ≡ 3 (mod 4), so sqrt(a) = a^((p+1)/4) mod p.
+    final p = ecdsa.p;
+    final e = (p + BigInt.one) >> 2;
+    final r = a.modPow(e, p);
+    if ((r * r) % p != (a % p)) {
+      throw const FormatException('Não foi possível calcular sqrt mod p.');
+    }
+    return r;
   }
 
   /// Advanced utility: encodes a SegWit address for the provided witness version/program.

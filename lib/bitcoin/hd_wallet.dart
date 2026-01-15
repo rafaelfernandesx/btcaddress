@@ -30,6 +30,53 @@ class HdWatchOnlyExport {
     required this.extendedPublicKey,
   });
 
+  factory HdWatchOnlyExport.fromJson(Map<String, dynamic> json) {
+    final type = (json['type'] ?? '').toString();
+    if (type != 'watch-only') {
+      throw const FormatException('JSON não é do tipo watch-only.');
+    }
+
+    final version = json['version'];
+    final exportedAt = json['exportedAt'];
+    final scheme = json['scheme'];
+    final testnet = json['testnet'];
+    final accountPath = json['accountPath'];
+    final extendedPublicKey = json['extendedPublicKey'];
+
+    if (version is! int) {
+      throw const FormatException('Campo version inválido.');
+    }
+
+    if (exportedAt is! String || exportedAt.isEmpty) {
+      throw const FormatException('Campo exportedAt inválido.');
+    }
+
+    if (scheme is! String || scheme.isEmpty) {
+      throw const FormatException('Campo scheme inválido.');
+    }
+
+    if (testnet is! bool) {
+      throw const FormatException('Campo testnet inválido.');
+    }
+
+    if (accountPath is! String || accountPath.isEmpty) {
+      throw const FormatException('Campo accountPath inválido.');
+    }
+
+    if (extendedPublicKey is! String || extendedPublicKey.isEmpty) {
+      throw const FormatException('Campo extendedPublicKey inválido.');
+    }
+
+    return HdWatchOnlyExport(
+      version: version,
+      exportedAt: exportedAt,
+      scheme: scheme,
+      testnet: testnet,
+      accountPath: accountPath,
+      extendedPublicKey: extendedPublicKey,
+    );
+  }
+
   Map<String, dynamic> toJson() {
     return {
       'version': version,
@@ -133,6 +180,70 @@ class HdWalletDeriver {
     return out;
   }
 
+  static List<HdDerivedAddress> deriveBatchFromWatchOnly({
+    required HdWatchOnlyExport watchOnly,
+    int change = 0,
+    int startIndex = 0,
+    int count = 5,
+  }) {
+    final scheme = HdDerivationScheme.values.where((s) => s.name == watchOnly.scheme).cast<HdDerivationScheme?>().firstWhere(
+          (s) => s != null,
+          orElse: () => null,
+        );
+    if (scheme == null) {
+      throw FormatException('Esquema watch-only inválido: ${watchOnly.scheme}');
+    }
+
+    final safeCount = count.clamp(1, 50);
+    final accountPath = watchOnly.accountPath;
+    final normalizedExtKey = _normalizeExtendedPublicKeyForBip32(
+      watchOnly.extendedPublicKey,
+      scheme: scheme,
+      testnet: watchOnly.testnet,
+    );
+
+    final network = watchOnly.testnet ? _bip32Testnet : _bip32Mainnet;
+    final accountNode = bip32.BIP32.fromBase58(normalizedExtKey, network);
+
+    final tool = BitcoinTOOL();
+    if (watchOnly.testnet) tool.setNetworkPrefix('6f');
+
+    final out = <HdDerivedAddress>[];
+    for (int i = 0; i < safeCount; i++) {
+      final index = startIndex + i;
+      final path = '$accountPath/$change/$index';
+
+      final node = accountNode.derive(change).derive(index);
+      final pubCompressed = HEX.encode(node.publicKey);
+      final pubUncompressed = tool.uncompressPublicKeyHex(pubCompressed);
+
+      out.add(
+        HdDerivedAddress(
+          path: path,
+          addressLegacy: tool.getAddressFromPublicHex(
+            pubCompressed,
+            networkPrefix: watchOnly.testnet ? '6f' : '00',
+          ),
+          addressBech32: tool.getBech32AddressFromPublicKeyHex(
+            pubCompressed,
+            hrp: watchOnly.testnet ? 'tb' : 'bc',
+          ),
+          addressTaproot: tool.getTaprootAddressFromCompressedPublicKeyHex(
+            pubCompressed,
+            hrp: watchOnly.testnet ? 'tb' : 'bc',
+          ),
+          privateKeyHex: '',
+          privateKeyWif: '',
+          privateKeyWifCompressed: '',
+          publicKeyHex: pubUncompressed,
+          publicKeyHexCompressed: pubCompressed,
+        ),
+      );
+    }
+
+    return out;
+  }
+
   static HdWatchOnlyExport deriveWatchOnly({
     required String mnemonic,
     String passphrase = '',
@@ -193,8 +304,63 @@ class HdWalletDeriver {
   static String _normalizeMnemonic(String mnemonic) {
     return mnemonic.trim().toLowerCase().split(RegExp(r'\s+')).where((w) => w.isNotEmpty).join(' ');
   }
+
+  static String _normalizeExtendedPublicKeyForBip32(
+    String extendedPublicKey, {
+    required HdDerivationScheme scheme,
+    required bool testnet,
+  }) {
+    final trimmed = extendedPublicKey.trim();
+    if (trimmed.isEmpty) throw const FormatException('Extended key vazia.');
+
+    // bip32 lib entende apenas xpub/tpub (version bytes padrão), então
+    // convertemos zpub/vpub -> xpub/tpub quando necessário.
+    final decoded = bs58check.decode(trimmed);
+    if (decoded.length < 4) {
+      throw const FormatException('Extended key inválida (curta demais).');
+    }
+
+    final ver = decoded.sublist(0, 4);
+    final isXpub = _bytesEqual(ver, _xpub);
+    final isTpub = _bytesEqual(ver, _tpub);
+    final isZpub = _bytesEqual(ver, _zpub);
+    final isVpub = _bytesEqual(ver, _vpub);
+
+    if (testnet) {
+      if (isTpub) return trimmed;
+      if (scheme == HdDerivationScheme.bip84 && isVpub) {
+        return _convertXpubVersion(trimmed, toVersion: _tpub);
+      }
+      if (isXpub || isZpub) {
+        throw const FormatException('Extended key é mainnet, mas modo testnet está ativo.');
+      }
+    } else {
+      if (isXpub) return trimmed;
+      if (scheme == HdDerivationScheme.bip84 && isZpub) {
+        return _convertXpubVersion(trimmed, toVersion: _xpub);
+      }
+      if (isTpub || isVpub) {
+        throw const FormatException('Extended key é testnet, mas modo mainnet está ativo.');
+      }
+    }
+
+    // Se não for um dos version bytes esperados, deixa o bip32 validar.
+    return trimmed;
+  }
 }
 
+final bip32.NetworkType _bip32Mainnet = bip32.NetworkType(
+  wif: 0x80,
+  bip32: bip32.Bip32Type(public: 0x0488b21e, private: 0x0488ade4),
+);
+
+final bip32.NetworkType _bip32Testnet = bip32.NetworkType(
+  wif: 0xef,
+  bip32: bip32.Bip32Type(public: 0x043587cf, private: 0x04358394),
+);
+
+final Uint8List _xpub = Uint8List.fromList([0x04, 0x88, 0xB2, 0x1E]);
+final Uint8List _tpub = Uint8List.fromList([0x04, 0x35, 0x87, 0xCF]);
 final Uint8List _zpub = Uint8List.fromList([0x04, 0xB2, 0x47, 0x46]);
 final Uint8List _vpub = Uint8List.fromList([0x04, 0x5F, 0x1C, 0xF6]);
 
@@ -207,4 +373,12 @@ String _convertXpubVersion(String xpub, {required Uint8List toVersion}) {
   final out = Uint8List.fromList(decoded);
   out.setRange(0, 4, toVersion);
   return bs58check.encode(out);
+}
+
+bool _bytesEqual(List<int> a, List<int> b) {
+  if (a.length != b.length) return false;
+  for (int i = 0; i < a.length; i++) {
+    if (a[i] != b[i]) return false;
+  }
+  return true;
 }
