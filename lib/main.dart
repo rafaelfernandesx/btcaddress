@@ -4,6 +4,7 @@ import 'package:btcaddress/btc_tool.dart';
 import 'package:btcaddress/models/address_model.dart';
 import 'package:btcaddress/screens/address_detail_screen.dart';
 import 'package:btcaddress/screens/balance_checker_screen.dart';
+import 'package:btcaddress/screens/dice_wallet_screen.dart';
 import 'package:btcaddress/screens/hd_wallet_screen.dart';
 import 'package:btcaddress/screens/history_screen.dart';
 import 'package:btcaddress/screens/pixel_key_screen.dart';
@@ -299,6 +300,18 @@ class _MyHomePageState extends State<MyHomePage> with SingleTickerProviderStateM
                 );
               },
               tooltip: 'Carteira HD',
+            ),
+            IconButton(
+              icon: const Icon(Icons.casino_outlined),
+              onPressed: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => const DiceWalletScreen(),
+                  ),
+                );
+              },
+              tooltip: 'Dice Wallet',
             ),
             IconButton(
               icon: Icon(Icons.history),

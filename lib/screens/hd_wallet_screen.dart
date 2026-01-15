@@ -9,7 +9,9 @@ import '../theme/app_theme.dart';
 import '../widgets/qr_code_dialog.dart';
 
 class HdWalletScreen extends StatefulWidget {
-  const HdWalletScreen({super.key});
+  final String? initialMnemonic;
+
+  const HdWalletScreen({super.key, this.initialMnemonic});
 
   @override
   State<HdWalletScreen> createState() => _HdWalletScreenState();
@@ -33,6 +35,15 @@ class _HdWalletScreenState extends State<HdWalletScreen> {
   List<HdDerivedAddress> _derived = [];
   HdWatchOnlyExport? _watchOnly;
   HdWatchOnlyExport? _watchOnlyImported;
+
+  @override
+  void initState() {
+    super.initState();
+    final initial = widget.initialMnemonic;
+    if (initial != null && initial.trim().isNotEmpty) {
+      _mnemonicController.text = initial.trim();
+    }
+  }
 
   @override
   void dispose() {
