@@ -54,7 +54,7 @@ class _MyAppState extends State<MyApp> {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Bitcoin Address Generator',
+      title: 'Bag',
       debugShowCheckedModeBanner: false,
       theme: AppTheme.lightTheme,
       darkTheme: AppTheme.darkTheme,
@@ -237,7 +237,7 @@ class _MyHomePageState extends State<MyHomePage> with SingleTickerProviderStateM
                 color: AppTheme.primaryColor,
               ),
               SizedBox(width: 8),
-              Text('Bitcoin Address Generator'),
+              Text('Bag'),
             ],
           ),
           actions: [
