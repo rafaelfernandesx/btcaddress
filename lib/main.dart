@@ -289,8 +289,8 @@ class _MyHomePageState extends State<MyHomePage> with SingleTickerProviderStateM
             ),
             IconButton(
               icon: Icon(Icons.history),
-              onPressed: () {
-                Navigator.push(
+              onPressed: () async {
+                final result = await Navigator.push<int>(
                   context,
                   MaterialPageRoute(
                     builder: (context) => HistoryScreen(
@@ -300,6 +300,17 @@ class _MyHomePageState extends State<MyHomePage> with SingleTickerProviderStateM
                         await _loadHistory();
                       },
                     ),
+                  ),
+                );
+
+                if (!context.mounted) return;
+                if (result == null) return;
+                await _loadHistory();
+                if (!context.mounted) return;
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text('Histórico importado: $result itens.'),
+                    behavior: SnackBarBehavior.floating,
                   ),
                 );
               },

@@ -8,17 +8,26 @@ class StorageService {
   static const String _historyKey = 'address_history';
   static const String _themeKey = 'theme_mode';
 
+  static const int _historyLimit = 50;
+
   Future<void> saveAddress(AddressModel address) async {
     final prefs = await SharedPreferences.getInstance();
     List<String> history = prefs.getStringList(_historyKey) ?? [];
 
     // Limitar histórico a 50 itens
-    if (history.length >= 50) {
+    if (history.length >= _historyLimit) {
       history.removeAt(0);
     }
 
     history.add(jsonEncode(address.toJson()));
     await prefs.setStringList(_historyKey, history);
+  }
+
+  Future<void> overwriteHistory(List<AddressModel> addresses) async {
+    final prefs = await SharedPreferences.getInstance();
+    final trimmed = addresses.length <= _historyLimit ? addresses : addresses.sublist(addresses.length - _historyLimit);
+    final encoded = trimmed.map((a) => jsonEncode(a.toJson())).toList();
+    await prefs.setStringList(_historyKey, encoded);
   }
 
   Future<List<AddressModel>> getHistory() async {

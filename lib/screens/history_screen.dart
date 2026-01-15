@@ -1,6 +1,11 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:share_plus/share_plus.dart';
 
 import '../models/address_model.dart';
+import '../services/storage_service.dart';
 import 'address_detail_screen.dart';
 
 class HistoryScreen extends StatelessWidget {
@@ -13,12 +18,147 @@ class HistoryScreen extends StatelessWidget {
     required this.onClear,
   });
 
+  Future<void> _exportHistory(BuildContext context) async {
+    final payload = jsonEncode(history.map((a) => a.toJson()).toList());
+    await Clipboard.setData(ClipboardData(text: payload));
+
+    if (!context.mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Histórico copiado como JSON.'),
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
+  }
+
+  Future<void> _shareHistory(BuildContext context) async {
+    final payload = jsonEncode(history.map((a) => a.toJson()).toList());
+    try {
+      await Share.share(
+        payload,
+        subject: 'Histórico (Bag) — Endereços Bitcoin',
+      );
+    } catch (_) {
+      await Clipboard.setData(ClipboardData(text: payload));
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Não foi possível compartilhar. JSON copiado.'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    }
+  }
+
+  Future<void> _importHistory(BuildContext context) async {
+    final controller = TextEditingController();
+    final formKey = GlobalKey<FormState>();
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Importar histórico (JSON)'),
+        content: Form(
+          key: formKey,
+          child: TextFormField(
+            controller: controller,
+            minLines: 6,
+            maxLines: 12,
+            decoration: const InputDecoration(
+              hintText: '[{...}, {...}]',
+              labelText: 'Cole aqui o JSON exportado',
+            ),
+            validator: (v) {
+              final t = v?.trim() ?? '';
+              if (t.isEmpty) return 'Cole um JSON.';
+              return null;
+            },
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancelar'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              if (formKey.currentState?.validate() != true) return;
+              Navigator.pop(ctx, true);
+            },
+            child: const Text('Importar'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true) return;
+
+    final text = controller.text.trim();
+    try {
+      final decoded = jsonDecode(text);
+
+      List<AddressModel> imported;
+      if (decoded is List) {
+        imported = decoded.map<AddressModel>((e) {
+          if (e is Map<String, dynamic>) {
+            return AddressModel.fromJson(e);
+          }
+          if (e is Map) {
+            return AddressModel.fromJson(Map<String, dynamic>.from(e));
+          }
+          if (e is String) {
+            // Compat: lista de strings JSON individuais.
+            return AddressModel.fromJson(jsonDecode(e) as Map<String, dynamic>);
+          }
+          throw const FormatException('Item inválido no array');
+        }).toList();
+      } else {
+        throw const FormatException('JSON deve ser um array');
+      }
+
+      await StorageService().overwriteHistory(imported);
+      if (!context.mounted) return;
+      final importedCount = imported.length > 50 ? 50 : imported.length;
+      Navigator.pop(context, importedCount);
+    } catch (e) {
+      if (!context.mounted) return;
+      showDialog(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('Falha ao importar'),
+          content: Text(e.toString()),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('OK'),
+            ),
+          ],
+        ),
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
         title: Text('Histórico de Endereços'),
         actions: [
+          IconButton(
+            tooltip: 'Compartilhar JSON',
+            icon: const Icon(Icons.share_outlined),
+            onPressed: history.isEmpty ? null : () => _shareHistory(context),
+          ),
+          IconButton(
+            tooltip: 'Exportar (copiar JSON)',
+            icon: const Icon(Icons.download_outlined),
+            onPressed: history.isEmpty ? null : () => _exportHistory(context),
+          ),
+          IconButton(
+            tooltip: 'Importar (colar JSON)',
+            icon: const Icon(Icons.upload_outlined),
+            onPressed: () => _importHistory(context),
+          ),
           if (history.isNotEmpty)
             IconButton(
               icon: Icon(Icons.delete_outline),
