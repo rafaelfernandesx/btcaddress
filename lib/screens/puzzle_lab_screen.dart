@@ -41,11 +41,6 @@ class _PuzzleLabScreenState extends State<PuzzleLabScreen> {
 
   int? _toyRandomSeed;
 
-  final bool _simulateBitcoinPuzzle = false;
-  int _simulatePuzzleId = 1;
-  final String _simulateQuery = '';
-  BitcoinPuzzleSolveStatus? _simulateStatusFilter;
-
   bool _running = false;
   bool _runningRealPuzzle = false;
   String? _message;
@@ -59,15 +54,10 @@ class _PuzzleLabScreenState extends State<PuzzleLabScreen> {
   int _realTestedKeys = 0;
   int _realKeysPerSecond = 0;
   BigInt _realCurrentKey = BigInt.zero;
-  DateTime? _realStartTime;
   bool _realCheckLegacy = true;
   bool _realCheckCompressed = true;
 
-  // Toy puzzle helper
-  String? _toyPrivateKeyHex;
   String? _toyTargetAddress;
-  bool _showToySolution = false;
-
   int _selectedPuzzleId = 1;
   String _puzzleQuery = '';
   BitcoinPuzzleSolveStatus? _statusFilter;
@@ -95,13 +85,10 @@ class _PuzzleLabScreenState extends State<PuzzleLabScreen> {
   }
 
   BigInt _toyStartKey() {
-    if (!_simulateBitcoinPuzzle) return BigInt.one;
-    if (_toyBitLength <= 1) return BigInt.one;
-    return BigInt.one << (_toyBitLength - 1);
+    return BigInt.one;
   }
 
   BigInt _toyEndKey() {
-    if (!_simulateBitcoinPuzzle) return _maxKey();
     return (BigInt.one << _toyBitLength) - BigInt.one;
   }
 
@@ -224,36 +211,17 @@ class _PuzzleLabScreenState extends State<PuzzleLabScreen> {
       return;
     }
 
-    // Gera k no range de treino.
+    // Range padrão: [1, 2^bits-1].
     BigInt k;
-    if (_simulateBitcoinPuzzle) {
-      final bits = _toyBitLength;
-      if (bits < 8 || bits > 32) {
-        setState(() {
-          _message = 'Simulação disponível apenas para 8..32 bits (educacional).';
-        });
-        return;
-      }
-      if (bits == 1) {
-        k = BigInt.one;
-      } else {
-        final offsetMax = 1 << (bits - 1);
-        final offset = random.nextInt(offsetMax);
-        final intCandidate = (1 << (bits - 1)) + offset;
-        k = BigInt.from(intCandidate);
-      }
+    int intCandidate;
+    if (_toyBitLength == 32) {
+      final hi = random.nextInt(1 << 16);
+      final lo = random.nextInt(1 << 16);
+      intCandidate = (hi << 16) | lo;
     } else {
-      // Range padrão: [1, 2^bits-1].
-      int intCandidate;
-      if (_toyBitLength == 32) {
-        final hi = random.nextInt(1 << 16);
-        final lo = random.nextInt(1 << 16);
-        intCandidate = (hi << 16) | lo;
-      } else {
-        intCandidate = random.nextInt(1 << _toyBitLength);
-      }
-      k = BigInt.from(intCandidate == 0 ? 1 : intCandidate);
+      intCandidate = random.nextInt(1 << _toyBitLength);
     }
+    k = BigInt.from(intCandidate == 0 ? 1 : intCandidate);
 
     final privHex = k.toRadixString(16).padLeft(64, '0');
     final btc = BitcoinTOOL()..setPrivateKeyHex(privHex);
@@ -265,63 +233,10 @@ class _PuzzleLabScreenState extends State<PuzzleLabScreen> {
     _toyPrivKeyController.text = privHex;
 
     setState(() {
-      _toyPrivateKeyHex = privHex;
       _toyTargetAddress = compressed;
-      _showToySolution = false;
       _toyRandomSeed = null;
-      _message = _simulateBitcoinPuzzle
-          ? 'Simulação gerada (Puzzle #$_simulatePuzzleId). Tente encontrar a chave no range 2^${_toyBitLength - 1}..2^$_toyBitLength-1.'
-          : 'Toy puzzle gerado. Tente encontrar a chave no range 1..2^$_toyBitLength-1.';
+      _message = 'Toy puzzle gerado. Tente encontrar a chave no range 1..2^$_toyBitLength-1.';
     });
-  }
-
-  void _applySimulationPreset(int puzzleId) {
-    final preset = kBitcoinPuzzlePresetsById[puzzleId];
-    if (preset == null) return;
-
-    setState(() {
-      _simulatePuzzleId = puzzleId;
-      _message = null;
-    });
-
-    if (preset.bits < 8 || preset.bits > 32) {
-      setState(() {
-        _message = 'Esse preset tem ${preset.bits} bits. A simulação do solver é apenas para 8..32 bits (educacional).';
-      });
-      return;
-    }
-
-    setState(() {
-      _toyBitLength = preset.bits;
-    });
-
-    _generateToyPuzzle();
-  }
-
-  List<BitcoinPuzzlePreset> _filteredSimulationPresets() {
-    final q = _simulateQuery.trim().toLowerCase();
-    return kBitcoinPuzzlePresets.where((p) {
-      if (_simulateStatusFilter != null && p.status != _simulateStatusFilter) return false;
-      if (q.isEmpty) return true;
-      return p.id.toString() == q || p.address.toLowerCase().contains(q);
-    }).toList();
-  }
-
-  Future<void> _repeatTest() async {
-    if (_running) return;
-    if (_toyTargetAddress == null) return;
-
-    setState(() {
-      _message = null;
-      _progress = null;
-      _found = null;
-      _currentKeyController.text = '';
-      _foundPrivKeyController.text = '';
-      _foundCompressedController.text = '';
-      _foundLegacyController.text = '';
-    });
-
-    await _start();
   }
 
   void _applyPuzzlePreset(int puzzleId) {
@@ -449,7 +364,6 @@ class _PuzzleLabScreenState extends State<PuzzleLabScreen> {
       _runningRealPuzzle = true;
       _realTestedKeys = 0;
       _realKeysPerSecond = 0;
-      _realStartTime = DateTime.now();
       _message = 'Iniciando brute force no Puzzle #$_realPuzzleId ($_realPuzzleBits bits)...';
     });
 
@@ -457,9 +371,9 @@ class _PuzzleLabScreenState extends State<PuzzleLabScreen> {
     final startKey = _puzzleStartKey(_realPuzzleBits);
     final endKey = _puzzleEndKey(_realPuzzleBits);
 
-    print('Iniciando brute force no puzzle $_realPuzzleId');
-    print('Range: $startKey a $endKey');
-    print('Total de chaves: ${endKey - startKey + BigInt.one}');
+    debugPrint('Iniciando brute force no puzzle $_realPuzzleId');
+    debugPrint('Range: $startKey a $endKey');
+    debugPrint('Total de chaves: ${endKey - startKey + BigInt.one}');
 
     // Executar em um Isolate para não travar a UI
     await _runBruteForceIsolate(startKey, endKey);
@@ -613,8 +527,14 @@ class _PuzzleLabScreenState extends State<PuzzleLabScreen> {
   }
 
   Widget _buildRealPuzzleBruteForcePanel() {
-    final totalKeysEstimate =
-        _realPuzzleBits < 64 ? (BigInt.one << _realPuzzleBits) - (BigInt.one << (_realPuzzleBits - 1)) : BigInt.parse('Muito grande para exibir');
+    final String totalKeysEstimate;
+    if (_realPuzzleBits >= 64) {
+      totalKeysEstimate = 'Muito grande para exibir';
+    } else {
+      final start = _puzzleStartKey(_realPuzzleBits);
+      final end = _puzzleEndKey(_realPuzzleBits);
+      totalKeysEstimate = (end - start + BigInt.one).toString();
+    }
 
     return Card(
       child: Padding(
@@ -844,21 +764,7 @@ class _PuzzleLabScreenState extends State<PuzzleLabScreen> {
     final max = _maxKey();
     final totalKeys = max.toString();
 
-    final toyStart = _toyStartKey();
-    final toyEnd = _toyEndKey();
-    final toyStartHex = toyStart.toRadixString(16).padLeft(64, '0');
-    final toyEndHex = toyEnd.toRadixString(16).padLeft(64, '0');
-
-    final selectedPreset = kBitcoinPuzzlePresetsById[_selectedPuzzleId] ?? kBitcoinPuzzlePresets.first;
-    final puzzleBits = selectedPreset.bits;
-    final puzzleStart = _puzzleStartKey(puzzleBits);
-    final puzzleEnd = _puzzleEndKey(puzzleBits);
-    final puzzleStartHex = puzzleStart.toRadixString(16).padLeft(64, '0');
-    final puzzleEndHex = puzzleEnd.toRadixString(16).padLeft(64, '0');
-
     final filtered = _filteredPresets();
-    final simSelectedPreset = kBitcoinPuzzlePresetsById[_simulatePuzzleId] ?? kBitcoinPuzzlePresets.first;
-    final simFiltered = _filteredSimulationPresets();
 
     return Scaffold(
       appBar: AppBar(
@@ -874,6 +780,28 @@ class _PuzzleLabScreenState extends State<PuzzleLabScreen> {
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
+          if (_message != null && _message!.trim().isNotEmpty) ...[
+            Card(
+              color: Theme.of(context).colorScheme.surfaceContainerHighest,
+              child: Padding(
+                padding: const EdgeInsets.all(12),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Icon(Icons.info_outline, color: Theme.of(context).colorScheme.primary),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Text(
+                        _message!,
+                        style: Theme.of(context).textTheme.bodyMedium,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 16),
+          ],
           Card(
             child: Padding(
               padding: const EdgeInsets.all(16),
@@ -1006,6 +934,30 @@ class _PuzzleLabScreenState extends State<PuzzleLabScreen> {
                         label: Text(_running ? 'Parar' : 'Iniciar Busca'),
                       ),
                     ),
+                    if (_running && _progress != null) ...[
+                      const SizedBox(height: 12),
+                      Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: Theme.of(context).colorScheme.surfaceContainerHighest,
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Progresso: ${_progress!.tested} chaves • ${_progress!.keysPerSecond.toStringAsFixed(0)} keys/s',
+                              style: Theme.of(context).textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w700),
+                            ),
+                            const SizedBox(height: 8),
+                            Text(
+                              'Chave atual: ${_progress!.currentPrivKeyHex.substring(0, 16)}...',
+                              style: const TextStyle(fontFamily: 'monospace', fontSize: 12),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
                   ],
                 ),
               ),
@@ -1034,6 +986,58 @@ class _PuzzleLabScreenState extends State<PuzzleLabScreen> {
             // Modo Bitcoin Puzzle Real
             const SizedBox(height: 16),
             _buildRealPuzzleBruteForcePanel(),
+            const SizedBox(height: 16),
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Verificar chave candidata (HEX)',
+                      style: Theme.of(context).textTheme.titleLarge,
+                    ),
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: _puzzleAddressController,
+                      decoration: const InputDecoration(
+                        labelText: 'Endereço alvo (legacy ou comprimido)',
+                        prefixIcon: Icon(Icons.flag_outlined),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: _candidatePrivKeyController,
+                      decoration: const InputDecoration(
+                        labelText: 'Private key (HEX, 64 chars)',
+                        prefixIcon: Icon(Icons.vpn_key_outlined),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton.icon(
+                        onPressed: _verifyCandidate,
+                        icon: const Icon(Icons.check_circle_outline),
+                        label: const Text('Verificar'),
+                      ),
+                    ),
+                    if (_candidateResult != null && _candidateResult!.trim().isNotEmpty) ...[
+                      const SizedBox(height: 12),
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: Theme.of(context).colorScheme.surfaceContainerHighest,
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Text(_candidateResult!),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ),
             const SizedBox(height: 16),
             Card(
               child: Padding(
@@ -1090,9 +1094,9 @@ class _PuzzleLabScreenState extends State<PuzzleLabScreen> {
                               Container(
                                 padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 2),
                                 decoration: BoxDecoration(
-                                  color: statusColor.withOpacity(0.12),
+                                  color: statusColor.withValues(alpha: 0.12),
                                   borderRadius: BorderRadius.circular(999),
-                                  border: Border.all(color: statusColor.withOpacity(0.35)),
+                                  border: Border.all(color: statusColor.withValues(alpha: 0.35)),
                                 ),
                                 child: Text(_statusLabel(p), style: const TextStyle(fontSize: 12)),
                               ),
