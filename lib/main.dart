@@ -9,6 +9,7 @@ import 'package:btcaddress/screens/hd_wallet_screen.dart';
 import 'package:btcaddress/screens/history_screen.dart';
 import 'package:btcaddress/screens/pixel_key_screen.dart';
 import 'package:btcaddress/screens/puzzle_lab_screen.dart';
+import 'package:btcaddress/screens/tap_key_screen.dart';
 import 'package:btcaddress/services/blockchain_service.dart';
 import 'package:btcaddress/services/storage_service.dart';
 import 'package:btcaddress/theme/app_theme.dart';
@@ -263,6 +264,19 @@ class _MyHomePageState extends State<MyHomePage> with SingleTickerProviderStateM
 
   Widget _buildShortcuts(BuildContext context) {
     final items = <({IconData icon, String title, String subtitle, VoidCallback onTap})>[
+      (
+        icon: Icons.touch_app_outlined,
+        title: 'TapKey',
+        subtitle: 'Ritmo (seed + HEX)',
+        onTap: () {
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => const TapKeyScreen(),
+            ),
+          );
+        },
+      ),
       (
         icon: Icons.account_balance_wallet_outlined,
         title: 'Saldo',
