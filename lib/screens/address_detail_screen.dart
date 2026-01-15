@@ -21,6 +21,16 @@ class AddressDetailScreen extends StatelessWidget {
       body: ListView(
         padding: EdgeInsets.all(16),
         children: [
+          if (address.addressBech32.isNotEmpty) ...[
+            _buildInfoCard(
+              context,
+              'Endereço Bech32 (SegWit)',
+              address.addressBech32,
+              Icons.bolt,
+              showQR: true,
+            ),
+            SizedBox(height: 12),
+          ],
           _buildInfoCard(
             context,
             'Endereço Comprimido',

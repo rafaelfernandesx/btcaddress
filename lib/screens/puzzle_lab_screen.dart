@@ -409,6 +409,7 @@ class _PuzzleLabScreenState extends State<PuzzleLabScreen> {
 
     final model = AddressModel(
       seed: 'puzzle-lab:$_toyBitLength-bits',
+      addressBech32: btc.getBech32Address(),
       addressCompressed: btc.getAddress(true),
       addressUncompressed: btc.getAddress(false),
       privateKeyHex: btc.getPrivateKey(),

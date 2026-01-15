@@ -142,6 +142,11 @@ class BitcoinTOOL {
     return networkPrefix;
   }
 
+  String getBech32Hrp() {
+    // mainnet: bc, testnet: tb
+    return networkPrefix == '6f' ? 'tb' : 'bc';
+  }
+
   getPrivatePrefix() {
     if (networkPrefix == '6f') {
       return 'ef';
@@ -227,6 +232,17 @@ class BitcoinTOOL {
     } else {
       throw Exception('O endereço gerado parece não ser válido.');
     }
+  }
+
+  /// Native SegWit v0 P2WPKH (Bech32) address from a public key.
+  ///
+  /// For standardness and interoperability, this uses compressed pubkeys by default.
+  String getBech32Address({String? hrp, bool compressedPubKey = true}) {
+    final chosenHrp = (hrp ?? getBech32Hrp()).toLowerCase();
+    final pubKeyHex = getPubKey(compressed: compressedPubKey);
+    final pubKeyHashHex = hash160(pubKeyHex); // 20 bytes
+    final program = HEX.decode(pubKeyHashHex);
+    return _segwitEncode(chosenHrp, 0, program);
   }
 
   getAddressh160([bool compressed = false]) {
@@ -404,6 +420,107 @@ class BitcoinTOOL {
     // Chamar a função para definir a chave privada em hexadecimal
     setPrivateKeyHex(privateKeyHex);
   }
+}
+
+// ==================== Bech32 / SegWit (BIP173) ====================
+
+const String _bech32Charset = 'qpzry9x8gf2tvdw0s3jn54khce6mua7l';
+
+int _bech32Polymod(List<int> values) {
+  const List<int> generator = [
+    0x3b6a57b2,
+    0x26508e6d,
+    0x1ea119fa,
+    0x3d4233dd,
+    0x2a1462b3,
+  ];
+  int chk = 1;
+  for (final v in values) {
+    final b = chk >> 25;
+    chk = ((chk & 0x1ffffff) << 5) ^ v;
+    for (int i = 0; i < 5; i++) {
+      if (((b >> i) & 1) != 0) {
+        chk ^= generator[i];
+      }
+    }
+  }
+  return chk;
+}
+
+List<int> _bech32HrpExpand(String hrp) {
+  final List<int> ret = [];
+  for (final c in hrp.codeUnits) {
+    ret.add(c >> 5);
+  }
+  ret.add(0);
+  for (final c in hrp.codeUnits) {
+    ret.add(c & 31);
+  }
+  return ret;
+}
+
+List<int> _bech32CreateChecksum(String hrp, List<int> data) {
+  final values = <int>[..._bech32HrpExpand(hrp), ...data];
+  final polymod = _bech32Polymod([...values, 0, 0, 0, 0, 0, 0]) ^ 1;
+  return List<int>.generate(6, (i) => (polymod >> (5 * (5 - i))) & 31);
+}
+
+String _bech32Encode(String hrp, List<int> data) {
+  final checksum = _bech32CreateChecksum(hrp, data);
+  final combined = <int>[...data, ...checksum];
+  final sb = StringBuffer();
+  sb.write(hrp);
+  sb.write('1');
+  for (final v in combined) {
+    sb.write(_bech32Charset[v]);
+  }
+  return sb.toString();
+}
+
+List<int> _convertBits(List<int> data, int fromBits, int toBits, {bool pad = true}) {
+  int acc = 0;
+  int bits = 0;
+  final List<int> ret = [];
+  final int maxv = (1 << toBits) - 1;
+  for (final value in data) {
+    if (value < 0 || (value >> fromBits) != 0) {
+      throw Exception('Invalid value for convertBits');
+    }
+    acc = (acc << fromBits) | value;
+    bits += fromBits;
+    while (bits >= toBits) {
+      bits -= toBits;
+      ret.add((acc >> bits) & maxv);
+    }
+  }
+  if (pad) {
+    if (bits > 0) {
+      ret.add((acc << (toBits - bits)) & maxv);
+    }
+  } else {
+    if (bits >= fromBits) {
+      throw Exception('Excess padding');
+    }
+    if (((acc << (toBits - bits)) & maxv) != 0) {
+      throw Exception('Non-zero padding');
+    }
+  }
+  return ret;
+}
+
+String _segwitEncode(String hrp, int witnessVersion, List<int> program) {
+  if (witnessVersion < 0 || witnessVersion > 16) {
+    throw Exception('Invalid witness version');
+  }
+  if (program.length < 2 || program.length > 40) {
+    throw Exception('Invalid witness program length');
+  }
+  if (witnessVersion == 0 && program.length != 20 && program.length != 32) {
+    throw Exception('Invalid program length for v0');
+  }
+
+  final data = <int>[witnessVersion, ..._convertBits(program, 8, 5, pad: true)];
+  return _bech32Encode(hrp.toLowerCase(), data);
 }
 
 class Base58 {

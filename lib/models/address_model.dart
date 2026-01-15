@@ -2,6 +2,7 @@ class AddressModel {
   final String seed;
   final String addressCompressed;
   final String addressUncompressed;
+  final String addressBech32;
   final String privateKeyHex;
   final String privateKeyWif;
   final String privateKeyWifCompressed;
@@ -13,6 +14,7 @@ class AddressModel {
     required this.seed,
     required this.addressCompressed,
     required this.addressUncompressed,
+    this.addressBech32 = '',
     required this.privateKeyHex,
     required this.privateKeyWif,
     required this.privateKeyWifCompressed,
@@ -26,6 +28,7 @@ class AddressModel {
       'seed': seed,
       'addressCompressed': addressCompressed,
       'addressUncompressed': addressUncompressed,
+      'addressBech32': addressBech32,
       'privateKeyHex': privateKeyHex,
       'privateKeyWif': privateKeyWif,
       'privateKeyWifCompressed': privateKeyWifCompressed,
@@ -40,6 +43,7 @@ class AddressModel {
       seed: json['seed'] ?? '',
       addressCompressed: json['addressCompressed'] ?? '',
       addressUncompressed: json['addressUncompressed'] ?? '',
+      addressBech32: json['addressBech32'] ?? '',
       privateKeyHex: json['privateKeyHex'] ?? '',
       privateKeyWif: json['privateKeyWif'] ?? '',
       privateKeyWifCompressed: json['privateKeyWifCompressed'] ?? '',
