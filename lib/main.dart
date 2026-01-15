@@ -235,6 +235,185 @@ class _MyHomePageState extends State<MyHomePage> with SingleTickerProviderStateM
     update();
   }
 
+  Future<void> _openHistory() async {
+    final result = await Navigator.push<int>(
+      context,
+      MaterialPageRoute(
+        builder: (context) => HistoryScreen(
+          history: _history,
+          onClear: () async {
+            await _storage.clearHistory();
+            await _loadHistory();
+          },
+        ),
+      ),
+    );
+
+    if (!mounted) return;
+    if (result == null) return;
+    await _loadHistory();
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('Histórico atualizado: $result itens.'),
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
+  }
+
+  Widget _buildShortcuts(BuildContext context) {
+    final items = <({IconData icon, String title, String subtitle, VoidCallback onTap})>[
+      (
+        icon: Icons.account_balance_wallet_outlined,
+        title: 'Saldo',
+        subtitle: 'Consultar endereço',
+        onTap: () {
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => const BalanceCheckerScreen(),
+            ),
+          );
+        },
+      ),
+      (
+        icon: Icons.account_tree_outlined,
+        title: 'HD Wallet',
+        subtitle: 'BIP39/BIP32',
+        onTap: () {
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => const HdWalletScreen(),
+            ),
+          );
+        },
+      ),
+      (
+        icon: Icons.casino_outlined,
+        title: 'Dice Wallet',
+        subtitle: 'Entropia física',
+        onTap: () {
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => const DiceWalletScreen(),
+            ),
+          );
+        },
+      ),
+      (
+        icon: Icons.grid_4x4,
+        title: 'PixelKey',
+        subtitle: 'Chave por pixels',
+        onTap: () {
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => const PixelKeyScreen(),
+            ),
+          );
+        },
+      ),
+      (
+        icon: Icons.emoji_objects_outlined,
+        title: 'Puzzle Lab',
+        subtitle: 'Educacional',
+        onTap: () {
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => const PuzzleLabScreen(),
+            ),
+          );
+        },
+      ),
+      (
+        icon: Icons.history,
+        title: 'Histórico',
+        subtitle: 'Exportar/importar',
+        onTap: _openHistory,
+      ),
+    ];
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final crossAxisCount = constraints.maxWidth >= 800
+            ? 3
+            : constraints.maxWidth >= 520
+                ? 3
+                : 2;
+
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Atalhos',
+              style: Theme.of(context).textTheme.titleLarge,
+            ),
+            const SizedBox(height: 4),
+            Text(
+              'Acesso rápido às ferramentas do app.',
+              style: Theme.of(context).textTheme.bodyMedium,
+            ),
+            const SizedBox(height: 12),
+            GridView.count(
+              crossAxisCount: crossAxisCount,
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              mainAxisSpacing: 12,
+              crossAxisSpacing: 12,
+              childAspectRatio: 1.6,
+              children: [
+                for (final it in items)
+                  Card(
+                    clipBehavior: Clip.antiAlias,
+                    child: InkWell(
+                      onTap: it.onTap,
+                      child: Padding(
+                        padding: const EdgeInsets.all(16),
+                        child: Row(
+                          children: [
+                            CircleAvatar(
+                              backgroundColor: Theme.of(context).colorScheme.primaryContainer,
+                              foregroundColor: Theme.of(context).colorScheme.onPrimaryContainer,
+                              child: Icon(it.icon),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Column(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    it.title,
+                                    style: Theme.of(context).textTheme.titleMedium,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                  const SizedBox(height: 2),
+                                  Text(
+                                    it.subtitle,
+                                    style: Theme.of(context).textTheme.bodySmall,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ],
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return GestureDetector(
@@ -253,95 +432,6 @@ class _MyHomePageState extends State<MyHomePage> with SingleTickerProviderStateM
             ],
           ),
           actions: [
-            IconButton(
-              icon: Icon(Icons.account_balance_wallet_outlined),
-              onPressed: () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) => const BalanceCheckerScreen(),
-                  ),
-                );
-              },
-              tooltip: 'Consultar saldo',
-            ),
-            IconButton(
-              icon: const Icon(Icons.emoji_objects_outlined),
-              onPressed: () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) => const PuzzleLabScreen(),
-                  ),
-                );
-              },
-              tooltip: 'Puzzle Lab',
-            ),
-            IconButton(
-              icon: Icon(Icons.grid_4x4),
-              onPressed: () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) => const PixelKeyScreen(),
-                  ),
-                );
-              },
-              tooltip: 'PixelKey',
-            ),
-            IconButton(
-              icon: const Icon(Icons.account_tree_outlined),
-              onPressed: () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) => const HdWalletScreen(),
-                  ),
-                );
-              },
-              tooltip: 'Carteira HD',
-            ),
-            IconButton(
-              icon: const Icon(Icons.casino_outlined),
-              onPressed: () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) => const DiceWalletScreen(),
-                  ),
-                );
-              },
-              tooltip: 'Dice Wallet',
-            ),
-            IconButton(
-              icon: Icon(Icons.history),
-              onPressed: () async {
-                final result = await Navigator.push<int>(
-                  context,
-                  MaterialPageRoute(
-                    builder: (context) => HistoryScreen(
-                      history: _history,
-                      onClear: () async {
-                        await _storage.clearHistory();
-                        await _loadHistory();
-                      },
-                    ),
-                  ),
-                );
-
-                if (!context.mounted) return;
-                if (result == null) return;
-                await _loadHistory();
-                if (!context.mounted) return;
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: Text('Histórico atualizado: $result itens.'),
-                    behavior: SnackBarBehavior.floating,
-                  ),
-                );
-              },
-              tooltip: 'Histórico',
-            ),
             IconButton(
               icon: AnimatedSwitcher(
                 duration: Duration(milliseconds: 300),
@@ -388,6 +478,9 @@ class _MyHomePageState extends State<MyHomePage> with SingleTickerProviderStateM
                     ),
                   ),
                   SizedBox(height: 24),
+
+                  _buildShortcuts(context),
+                  const SizedBox(height: 24),
 
                   // Input Method Selector
                   Text(
