@@ -1,3 +1,4 @@
+import 'package:btcaddress/bitcoin/address_validation.dart';
 import 'package:btcaddress/services/blockchain_service.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -15,6 +16,7 @@ class _BalanceCheckerScreenState extends State<BalanceCheckerScreen> {
 
   bool _loading = false;
   String? _result;
+  BitcoinAddressValidationResult? _validation;
 
   @override
   void dispose() {
@@ -25,6 +27,31 @@ class _BalanceCheckerScreenState extends State<BalanceCheckerScreen> {
   Future<void> _check() async {
     final address = _addressController.text.trim();
     if (address.isEmpty) return;
+
+    final validation = BitcoinAddressValidator.validate(address);
+    setState(() {
+      _validation = validation;
+    });
+    if (!validation.isValid) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(validation.error ?? 'Endereço inválido.'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      return;
+    }
+    if (validation.network == 'testnet') {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Endereço testnet detectado. O serviço de saldo é mainnet.'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      return;
+    }
 
     setState(() {
       _loading = true;
@@ -60,6 +87,11 @@ class _BalanceCheckerScreenState extends State<BalanceCheckerScreen> {
     _addressController.selection = TextSelection.fromPosition(
       TextPosition(offset: _addressController.text.length),
     );
+
+    setState(() {
+      _validation = BitcoinAddressValidator.validate(_addressController.text);
+      _result = null;
+    });
   }
 
   @override
@@ -87,6 +119,10 @@ class _BalanceCheckerScreenState extends State<BalanceCheckerScreen> {
                     decoration: InputDecoration(
                       labelText: 'Cole ou digite o endereço',
                       prefixIcon: const Icon(Icons.account_balance_wallet),
+                      errorText: (_validation != null && !_validation!.isValid) ? _validation!.error : null,
+                      helperText: (_validation != null && _validation!.isValid)
+                          ? '${_validation!.type} • ${_validation!.network}'
+                          : 'Suporta legacy (Base58), SegWit (Bech32) e Taproot (Bech32m).',
                       suffixIcon: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
@@ -100,6 +136,7 @@ class _BalanceCheckerScreenState extends State<BalanceCheckerScreen> {
                               _addressController.clear();
                               setState(() {
                                 _result = null;
+                                _validation = null;
                               });
                             },
                             tooltip: 'Limpar',
@@ -109,6 +146,13 @@ class _BalanceCheckerScreenState extends State<BalanceCheckerScreen> {
                       ),
                     ),
                     textInputAction: TextInputAction.search,
+                    onChanged: (_) {
+                      final t = _addressController.text.trim();
+                      setState(() {
+                        _validation = t.isEmpty ? null : BitcoinAddressValidator.validate(t);
+                        _result = null;
+                      });
+                    },
                     onSubmitted: (_) => _check(),
                   ),
                   const SizedBox(height: 12),

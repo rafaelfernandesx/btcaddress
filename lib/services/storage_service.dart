@@ -10,6 +10,20 @@ class StorageService {
 
   static const int _historyLimit = 50;
 
+  List<AddressModel> _normalizeForStorage(List<AddressModel> addresses) {
+    final list = [...addresses];
+    list.sort((a, b) => a.timestamp.compareTo(b.timestamp));
+    return list.length <= _historyLimit ? list : list.sublist(list.length - _historyLimit);
+  }
+
+  String _dedupeKey(AddressModel a) {
+    if (a.privateKeyHex.isNotEmpty) return 'k:${a.privateKeyHex}';
+    if (a.addressTaproot.isNotEmpty) return 'a:${a.addressTaproot}';
+    if (a.addressBech32.isNotEmpty) return 'a:${a.addressBech32}';
+    if (a.addressCompressed.isNotEmpty) return 'a:${a.addressCompressed}';
+    return 'a:${a.addressUncompressed}';
+  }
+
   Future<void> saveAddress(AddressModel address) async {
     final prefs = await SharedPreferences.getInstance();
     List<String> history = prefs.getStringList(_historyKey) ?? [];
@@ -23,11 +37,28 @@ class StorageService {
     await prefs.setStringList(_historyKey, history);
   }
 
-  Future<void> overwriteHistory(List<AddressModel> addresses) async {
+  Future<int> overwriteHistory(List<AddressModel> addresses) async {
     final prefs = await SharedPreferences.getInstance();
-    final trimmed = addresses.length <= _historyLimit ? addresses : addresses.sublist(addresses.length - _historyLimit);
+    final trimmed = _normalizeForStorage(addresses);
     final encoded = trimmed.map((a) => jsonEncode(a.toJson())).toList();
     await prefs.setStringList(_historyKey, encoded);
+    return trimmed.length;
+  }
+
+  Future<int> mergeHistory(List<AddressModel> imported) async {
+    // getHistory() retorna em ordem reversa (mais recente primeiro).
+    final existingDisplayOrder = await getHistory();
+    final existingChrono = existingDisplayOrder.reversed.toList();
+
+    final combined = <AddressModel>[...existingChrono, ...imported];
+    combined.sort((a, b) => a.timestamp.compareTo(b.timestamp));
+
+    final map = <String, AddressModel>{};
+    for (final item in combined) {
+      map[_dedupeKey(item)] = item;
+    }
+
+    return overwriteHistory(map.values.toList());
   }
 
   Future<List<AddressModel>> getHistory() async {

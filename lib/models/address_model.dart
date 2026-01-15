@@ -42,6 +42,8 @@ class AddressModel {
   }
 
   factory AddressModel.fromJson(Map<String, dynamic> json) {
+    final tsRaw = json['timestamp'];
+    final ts = DateTime.tryParse(tsRaw?.toString() ?? '');
     return AddressModel(
       seed: json['seed'] ?? '',
       addressCompressed: json['addressCompressed'] ?? '',
@@ -53,7 +55,7 @@ class AddressModel {
       privateKeyWifCompressed: json['privateKeyWifCompressed'] ?? '',
       publicKeyHex: json['publicKeyHex'] ?? '',
       publicKeyHexCompressed: json['publicKeyHexCompressed'] ?? '',
-      timestamp: DateTime.parse(json['timestamp']),
+      timestamp: ts ?? DateTime.fromMillisecondsSinceEpoch(0),
     );
   }
 }

@@ -53,41 +53,74 @@ class HistoryScreen extends StatelessWidget {
   Future<void> _importHistory(BuildContext context) async {
     final controller = TextEditingController();
     final formKey = GlobalKey<FormState>();
+    final messenger = ScaffoldMessenger.of(context);
+    bool merge = false;
 
     final confirmed = await showDialog<bool>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Importar histórico (JSON)'),
-        content: Form(
-          key: formKey,
-          child: TextFormField(
-            controller: controller,
-            minLines: 6,
-            maxLines: 12,
-            decoration: const InputDecoration(
-              hintText: '[{...}, {...}]',
-              labelText: 'Cole aqui o JSON exportado',
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setLocalState) => AlertDialog(
+          title: const Text('Importar histórico (JSON)'),
+          content: Form(
+            key: formKey,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextFormField(
+                  controller: controller,
+                  minLines: 6,
+                  maxLines: 12,
+                  decoration: const InputDecoration(
+                    hintText: '[{...}, {...}]',
+                    labelText: 'Cole aqui o JSON exportado',
+                  ),
+                  validator: (v) {
+                    final t = v?.trim() ?? '';
+                    if (t.isEmpty) return 'Cole um JSON.';
+                    return null;
+                  },
+                ),
+                const SizedBox(height: 12),
+                SwitchListTile.adaptive(
+                  contentPadding: EdgeInsets.zero,
+                  title: const Text('Mesclar com histórico atual'),
+                  subtitle: const Text('Se desativado, substitui tudo.'),
+                  value: merge,
+                  onChanged: (v) => setLocalState(() => merge = v),
+                ),
+              ],
             ),
-            validator: (v) {
-              final t = v?.trim() ?? '';
-              if (t.isEmpty) return 'Cole um JSON.';
-              return null;
-            },
           ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Cancelar'),
+            ),
+            TextButton(
+              onPressed: () async {
+                final data = await Clipboard.getData(Clipboard.kTextPlain);
+                final t = data?.text?.trim() ?? '';
+                controller.text = t;
+                if (t.isEmpty) {
+                  messenger.showSnackBar(
+                    const SnackBar(
+                      content: Text('Clipboard vazio ou sem texto.'),
+                      behavior: SnackBarBehavior.floating,
+                    ),
+                  );
+                }
+              },
+              child: const Text('Colar'),
+            ),
+            ElevatedButton(
+              onPressed: () {
+                if (formKey.currentState?.validate() != true) return;
+                Navigator.pop(ctx, true);
+              },
+              child: const Text('Importar'),
+            ),
+          ],
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Cancelar'),
-          ),
-          ElevatedButton(
-            onPressed: () {
-              if (formKey.currentState?.validate() != true) return;
-              Navigator.pop(ctx, true);
-            },
-            child: const Text('Importar'),
-          ),
-        ],
       ),
     );
 
@@ -95,7 +128,14 @@ class HistoryScreen extends StatelessWidget {
 
     final text = controller.text.trim();
     try {
-      final decoded = jsonDecode(text);
+      dynamic decoded = jsonDecode(text);
+
+      // Compat: aceitar payload embrulhado em um objeto.
+      if (decoded is Map) {
+        final map = Map<String, dynamic>.from(decoded);
+        if (map['items'] is List) decoded = map['items'];
+        if (map['history'] is List) decoded = map['history'];
+      }
 
       List<AddressModel> imported;
       if (decoded is List) {
@@ -116,10 +156,10 @@ class HistoryScreen extends StatelessWidget {
         throw const FormatException('JSON deve ser um array');
       }
 
-      await StorageService().overwriteHistory(imported);
+      final storage = StorageService();
+      final storedCount = merge ? await storage.mergeHistory(imported) : await storage.overwriteHistory(imported);
       if (!context.mounted) return;
-      final importedCount = imported.length > 50 ? 50 : imported.length;
-      Navigator.pop(context, importedCount);
+      Navigator.pop(context, storedCount);
     } catch (e) {
       if (!context.mounted) return;
       showDialog(

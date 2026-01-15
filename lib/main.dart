@@ -309,7 +309,7 @@ class _MyHomePageState extends State<MyHomePage> with SingleTickerProviderStateM
                 if (!context.mounted) return;
                 ScaffoldMessenger.of(context).showSnackBar(
                   SnackBar(
-                    content: Text('Histórico importado: $result itens.'),
+                    content: Text('Histórico atualizado: $result itens.'),
                     behavior: SnackBarBehavior.floating,
                   ),
                 );
