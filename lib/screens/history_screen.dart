@@ -18,8 +18,16 @@ class HistoryScreen extends StatelessWidget {
     required this.onClear,
   });
 
+  String _buildExportPayload() {
+    return jsonEncode({
+      'version': 1,
+      'exportedAt': DateTime.now().toIso8601String(),
+      'items': history.map((a) => a.toJson()).toList(),
+    });
+  }
+
   Future<void> _exportHistory(BuildContext context) async {
-    final payload = jsonEncode(history.map((a) => a.toJson()).toList());
+    final payload = _buildExportPayload();
     await Clipboard.setData(ClipboardData(text: payload));
 
     if (!context.mounted) return;
@@ -32,7 +40,7 @@ class HistoryScreen extends StatelessWidget {
   }
 
   Future<void> _shareHistory(BuildContext context) async {
-    final payload = jsonEncode(history.map((a) => a.toJson()).toList());
+    final payload = _buildExportPayload();
     try {
       await Share.share(
         payload,

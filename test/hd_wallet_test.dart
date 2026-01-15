@@ -1,0 +1,21 @@
+import 'package:btcaddress/bitcoin/hd_wallet.dart';
+import 'package:flutter_test/flutter_test.dart';
+
+void main() {
+  test('BIP84 vector: abandon...about -> first receiving address', () {
+    const mnemonic = 'abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about';
+
+    final addrs = HdWalletDeriver.deriveBatch(
+      mnemonic: mnemonic,
+      scheme: HdDerivationScheme.bip84,
+      testnet: false,
+      account: 0,
+      change: 0,
+      startIndex: 0,
+      count: 1,
+    );
+
+    expect(addrs, hasLength(1));
+    expect(addrs.first.addressBech32, 'bc1qcr8te4kr609gcawutmrza0j4xv80jy8z306fyu');
+  });
+}

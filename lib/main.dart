@@ -4,6 +4,7 @@ import 'package:btcaddress/btc_tool.dart';
 import 'package:btcaddress/models/address_model.dart';
 import 'package:btcaddress/screens/address_detail_screen.dart';
 import 'package:btcaddress/screens/balance_checker_screen.dart';
+import 'package:btcaddress/screens/hd_wallet_screen.dart';
 import 'package:btcaddress/screens/history_screen.dart';
 import 'package:btcaddress/screens/pixel_key_screen.dart';
 import 'package:btcaddress/screens/puzzle_lab_screen.dart';
@@ -286,6 +287,18 @@ class _MyHomePageState extends State<MyHomePage> with SingleTickerProviderStateM
                 );
               },
               tooltip: 'PixelKey',
+            ),
+            IconButton(
+              icon: const Icon(Icons.account_tree_outlined),
+              onPressed: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => const HdWalletScreen(),
+                  ),
+                );
+              },
+              tooltip: 'Carteira HD',
             ),
             IconButton(
               icon: Icon(Icons.history),
