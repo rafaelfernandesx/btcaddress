@@ -8,6 +8,7 @@ import 'package:btcaddress/screens/dice_wallet_screen.dart';
 import 'package:btcaddress/screens/duet_key_screen.dart';
 import 'package:btcaddress/screens/hd_wallet_screen.dart';
 import 'package:btcaddress/screens/history_screen.dart';
+import 'package:btcaddress/screens/image_hash_screen.dart';
 import 'package:btcaddress/screens/pixel_key_screen.dart';
 import 'package:btcaddress/screens/puzzle_lab_screen.dart';
 import 'package:btcaddress/screens/qr_mix_screen.dart';
@@ -315,6 +316,19 @@ class _MyHomePageState extends State<MyHomePage> with SingleTickerProviderStateM
             context,
             MaterialPageRoute(
               builder: (_) => const QrMixScreen(),
+            ),
+          );
+        },
+      ),
+      (
+        icon: Icons.image_outlined,
+        title: 'ImageHash',
+        subtitle: 'Imagem → chave',
+        onTap: () {
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => const ImageHashScreen(),
             ),
           );
         },
