@@ -9,6 +9,7 @@ import 'package:btcaddress/screens/hd_wallet_screen.dart';
 import 'package:btcaddress/screens/history_screen.dart';
 import 'package:btcaddress/screens/pixel_key_screen.dart';
 import 'package:btcaddress/screens/puzzle_lab_screen.dart';
+import 'package:btcaddress/screens/split_key_screen.dart';
 import 'package:btcaddress/screens/tap_key_screen.dart';
 import 'package:btcaddress/services/blockchain_service.dart';
 import 'package:btcaddress/services/storage_service.dart';
@@ -273,6 +274,19 @@ class _MyHomePageState extends State<MyHomePage> with SingleTickerProviderStateM
             context,
             MaterialPageRoute(
               builder: (_) => const TapKeyScreen(),
+            ),
+          );
+        },
+      ),
+      (
+        icon: Icons.call_split_outlined,
+        title: 'SplitKey',
+        subtitle: '2 partes (A+B)',
+        onTap: () {
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => const SplitKeyScreen(),
             ),
           );
         },
