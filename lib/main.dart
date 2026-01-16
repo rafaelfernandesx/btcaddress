@@ -16,6 +16,7 @@ import 'package:btcaddress/screens/qr_mix_screen.dart';
 import 'package:btcaddress/screens/shake_key_screen.dart';
 import 'package:btcaddress/screens/split_key_screen.dart';
 import 'package:btcaddress/screens/tap_key_screen.dart';
+import 'package:btcaddress/screens/treasure_phrase_screen.dart';
 import 'package:btcaddress/services/blockchain_service.dart';
 import 'package:btcaddress/services/storage_service.dart';
 import 'package:btcaddress/theme/app_theme.dart';
@@ -357,6 +358,19 @@ class _MyHomePageState extends State<MyHomePage> with SingleTickerProviderStateM
             context,
             MaterialPageRoute(
               builder: (_) => const AudioKeyScreen(),
+            ),
+          );
+        },
+      ),
+      (
+        icon: Icons.password_outlined,
+        title: 'Treasure',
+        subtitle: 'Frase + KDF',
+        onTap: () {
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => const TreasurePhraseScreen(),
             ),
           );
         },
