@@ -12,6 +12,7 @@ import 'package:btcaddress/screens/image_hash_screen.dart';
 import 'package:btcaddress/screens/pixel_key_screen.dart';
 import 'package:btcaddress/screens/puzzle_lab_screen.dart';
 import 'package:btcaddress/screens/qr_mix_screen.dart';
+import 'package:btcaddress/screens/shake_key_screen.dart';
 import 'package:btcaddress/screens/split_key_screen.dart';
 import 'package:btcaddress/screens/tap_key_screen.dart';
 import 'package:btcaddress/services/blockchain_service.dart';
@@ -329,6 +330,19 @@ class _MyHomePageState extends State<MyHomePage> with SingleTickerProviderStateM
             context,
             MaterialPageRoute(
               builder: (_) => const ImageHashScreen(),
+            ),
+          );
+        },
+      ),
+      (
+        icon: Icons.vibration_outlined,
+        title: 'ShakeKey',
+        subtitle: 'Agite (sensores)',
+        onTap: () {
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => const ShakeKeyScreen(),
             ),
           );
         },
