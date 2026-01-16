@@ -3,6 +3,7 @@ import 'dart:math' as math;
 import 'package:btcaddress/btc_tool.dart';
 import 'package:btcaddress/models/address_model.dart';
 import 'package:btcaddress/screens/address_detail_screen.dart';
+import 'package:btcaddress/screens/audio_key_screen.dart';
 import 'package:btcaddress/screens/balance_checker_screen.dart';
 import 'package:btcaddress/screens/dice_wallet_screen.dart';
 import 'package:btcaddress/screens/duet_key_screen.dart';
@@ -343,6 +344,19 @@ class _MyHomePageState extends State<MyHomePage> with SingleTickerProviderStateM
             context,
             MaterialPageRoute(
               builder: (_) => const ShakeKeyScreen(),
+            ),
+          );
+        },
+      ),
+      (
+        icon: Icons.audiotrack_outlined,
+        title: 'AudioKey',
+        subtitle: 'Áudio → chave',
+        onTap: () {
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => const AudioKeyScreen(),
             ),
           );
         },
