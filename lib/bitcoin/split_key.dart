@@ -35,6 +35,10 @@ class SplitKeyParts {
     return SplitKeyParts(partA: encA, partB: encB);
   }
 
+  static String encodePartA(Uint8List payload) => _encodePart(prefix: 'sk1A', payload: payload);
+
+  static String encodePartB(Uint8List payload) => _encodePart(prefix: 'sk1B', payload: payload);
+
   static Uint8List decodePart(String part) {
     final trimmed = part.trim();
     final idx = trimmed.indexOf(':');

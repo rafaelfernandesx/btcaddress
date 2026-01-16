@@ -14,7 +14,7 @@ void main() {
     await tester.pumpAndSettle();
 
     // AppBar title
-    expect(find.text('Bag'), findsOneWidget);
+    expect(find.text('Bitcoin Address Generator'), findsOneWidget);
 
     // Main header
     expect(find.text('Gerador de Endereços Bitcoin'), findsOneWidget);

@@ -5,6 +5,7 @@ import 'package:btcaddress/models/address_model.dart';
 import 'package:btcaddress/screens/address_detail_screen.dart';
 import 'package:btcaddress/screens/balance_checker_screen.dart';
 import 'package:btcaddress/screens/dice_wallet_screen.dart';
+import 'package:btcaddress/screens/duet_key_screen.dart';
 import 'package:btcaddress/screens/hd_wallet_screen.dart';
 import 'package:btcaddress/screens/history_screen.dart';
 import 'package:btcaddress/screens/pixel_key_screen.dart';
@@ -58,7 +59,7 @@ class _MyAppState extends State<MyApp> {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Bag',
+      title: 'Bitcoin Address Generator',
       debugShowCheckedModeBanner: false,
       theme: AppTheme.lightTheme,
       darkTheme: AppTheme.darkTheme,
@@ -266,6 +267,19 @@ class _MyHomePageState extends State<MyHomePage> with SingleTickerProviderStateM
   Widget _buildShortcuts(BuildContext context) {
     final items = <({IconData icon, String title, String subtitle, VoidCallback onTap})>[
       (
+        icon: Icons.group_outlined,
+        title: 'Dueto',
+        subtitle: '2 pessoas (A+B)',
+        onTap: () {
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => const DuetKeyScreen(),
+            ),
+          );
+        },
+      ),
+      (
         icon: Icons.touch_app_outlined,
         title: 'TapKey',
         subtitle: 'Ritmo (seed + HEX)',
@@ -456,7 +470,7 @@ class _MyHomePageState extends State<MyHomePage> with SingleTickerProviderStateM
                 color: AppTheme.primaryColor,
               ),
               SizedBox(width: 8),
-              Text('Bag'),
+              Text('Bitcoin Address Generator'),
             ],
           ),
           actions: [
