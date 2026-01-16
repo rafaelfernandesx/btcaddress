@@ -10,6 +10,7 @@ import 'package:btcaddress/screens/hd_wallet_screen.dart';
 import 'package:btcaddress/screens/history_screen.dart';
 import 'package:btcaddress/screens/pixel_key_screen.dart';
 import 'package:btcaddress/screens/puzzle_lab_screen.dart';
+import 'package:btcaddress/screens/qr_mix_screen.dart';
 import 'package:btcaddress/screens/split_key_screen.dart';
 import 'package:btcaddress/screens/tap_key_screen.dart';
 import 'package:btcaddress/services/blockchain_service.dart';
@@ -301,6 +302,19 @@ class _MyHomePageState extends State<MyHomePage> with SingleTickerProviderStateM
             context,
             MaterialPageRoute(
               builder: (_) => const SplitKeyScreen(),
+            ),
+          );
+        },
+      ),
+      (
+        icon: Icons.qr_code_2_outlined,
+        title: 'QR-Mix',
+        subtitle: 'Texto + salt',
+        onTap: () {
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => const QrMixScreen(),
             ),
           );
         },
